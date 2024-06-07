@@ -2,7 +2,7 @@
 name = "cnda_dl"
 version = "0.1.0"
 description = "A command line utility for downloading fMRI data from CNDA"
-authors = ["Ramone Agard <agardr@wustl.edu>"]
+authors = ["Ramone Agard <agardr@wustl.edu>", "Joey Scanga <joeyscanga92@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
