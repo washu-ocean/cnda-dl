@@ -22,6 +22,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as et
 import zipfile
+from textwrap import dedent
 
 '''
 dir_title: how the directory is denoted in prompt messages
@@ -105,8 +106,18 @@ def main():
         handle_dir_creation("DICOM", dicom_path)
     if not os.path.isdir(xml_path):
         handle_dir_creation("XML", xml_path)
+    
+    try:
+        central = Interface(server=os.environ['CNDADL_XNAT_URL'])
+    except KeyError:
+        logger.critical(dedent("""
+        CNDADL_XNAT_URL environment variable not found. Make sure to add the following line to your ~/.bashrc file:
+        
+        export CNDADL_XNAT_URL="<url-to-xnat-database>
 
-    central = Interface(server="https://cnda.wustl.edu/")
+        Exiting...
+        """))
+        sys.exit(1)
 
     for session in session_list:
         logger.info(f"Starting download of session {session}...")
