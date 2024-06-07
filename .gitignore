@@ -1,0 +1,32 @@
+# venvs
+venv
+venv-*
+.venv
+
+# media
+*mp4
+*bmp
+*png
+*ai
+
+
+# etc
+*zip
+*tar
+*csv
+*dcm
+.DS_Store
+tmp.py
+scratch
+*.wav
+
+#python
+__pycache__
+
+.nfs*
+
+#log artifacts
+*.log
+
+#fslpython symlink
+fslpython

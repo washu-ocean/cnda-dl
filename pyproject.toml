@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "cnda_dl"
+version = "0.1.0"
+description = "A command line utility for downloading fMRI data from CNDA"
+authors = ["Ramone Agard <agardr@wustl.edu>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+matplotlib = "3.7.2"
+matplotlib-inline = "0.1.6"
+progressbar2 = "4.4.2"
+pyxnat = "1.6.2"
+
+[tool.poetry.scripts]
+cnda-dl = "cnda_dl.cli:main"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
