@@ -22,7 +22,7 @@ scratch
 
 #python
 __pycache__
-
+dist/
 .nfs*
 
 #log artifacts
