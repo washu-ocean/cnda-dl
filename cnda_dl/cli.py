@@ -91,6 +91,14 @@ def main():
     parser.add_argument("--skip_unusable",
                         help="Don't download any scans marked as 'unusable' in the XML",
                         action='store_true')
+    parser.add_argument("--map_dats", 
+                        help=
+                        """The path to a directory containting .dat files you wish to pair with DICOM files. Using this argument
+                        means that all data is already available locally and the script will only pair Dat files to DICOMs and 
+                        run dcmdat2niix""")
+    parser.add_argument("-ks","--keep_short_runs",
+                        action="store_true",
+                        help="Flag to indicate that runs stopped short should still be converted to nifti")
     args = parser.parse_args()
 
 
@@ -113,153 +121,179 @@ def main():
         handle_dir_creation("DICOM", dicom_path)
     if not os.path.isdir(xml_path):
         handle_dir_creation("XML", xml_path)
-    
-    try:
-        central = Interface(server=os.environ['CNDADL_XNAT_URL'])
-    except KeyError:
-        logger.critical(dedent("""
-        CNDADL_XNAT_URL environment variable not found. Make sure to add the following line to your ~/.bashrc file:
-        
-        export CNDADL_XNAT_URL="<url-to-xnat-database>
 
-        Exiting...
-        """))
-        sys.exit(1)
+    central = None
+    if not dat_dir:
+        central = Interface(server="https://cnda.wustl.edu/")
 
     for session in session_list:
-        logger.info(f"Starting download of session {session}...")
-        query_params = {}
-        if hasattr(args, 'project_id'):
-            query_params['project_id'] = args.project_id
-        if args.experiment_id:
-            query_params['experiment_id'] = session
-        else:
-            query_params['subject_label'] = session
-
-        exp = central.array.mrsessions(**query_params)
-        
-        if len(exp) == 0:
-            raise RuntimeError("ERROR: query returned JsonTable object of length 0, meaning there were no results found with the given search parameters.")
-
-        if len(exp) > 1:
-            raise RuntimeError("ERROR: query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
-
-        project_id = exp["project"]
-        subject_id = exp["xnat:mrsessiondata/subject_id"]
-
-        logger.info("Downloading session xml...")
-        sub = central.select(f"/projects/{project_id}/subjects/{subject_id}")
-        with open(xml_path+f"/{session}.xml", "w") as f:
-            f.write(sub.get().decode())
-
-        xml_path = xml_path + f"/{session}.xml"
-        tree = et.parse(xml_path)
-        prefix = "{" + str(tree.getroot()).split("{")[-1].split("}")[0] + "}"
-        scan_xml_entries = tree.getroot().find(
-            f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
-        )
-        quality_pairs = {s.get("ID") : s.find(f"{prefix}quality").text
-                         for s in scan_xml_entries}
-
-        scans = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/*/").get()
-
-        if args.skip_unusable:
-            i = 0
-            while i < len(scans):
-                if quality_pairs[scans[i]] == "unusable":
-                    logger.info(f"Not downloading scan {scans[i]} (marked unusable)")
-                    del scans[i]
-                else:
-                    i += 1
-
-        if scan_num:
-            assert scan_num in scans, "Specified scan number does not exist for this session/experiment"
-            sdex = scans.index(scan_num)
-            scans = scans[sdex:]
-
-            
-        # Get total number of files
-        total_file_count, cur_file_count = 0, 0
-        for s in scans:
-            files = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/{s}/resources/files").get("")
-            total_file_count += len(files)
-        
-        logger.info(f"Total number of files: {total_file_count}")
-        with progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar:
-            for s in scans:
-                print(f"Downloading scan {s}...")
-                series_path = dicom_path+f"/{session}/{s}/DICOM"
-                os.makedirs(series_path, exist_ok=True)
-                files = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/{s}/resources/files").get("")
-                for f in files:
-                    print(f"\tFile {f.attributes()['Name']}, {fmt(int(f.size()))} ({cur_file_count+1} out of {total_file_count})")
-                    f.get(series_path + "/" +f._uri.split("/")[-1])
-                    cur_file_count += 1
-                    bar.update(cur_file_count)
-
-        if not args.ignore_nordic_volumes:
-            # Check for NORDIC files in this session
-            nv = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/resources/NORDIC_VOLUMES/files").get("")
-            if len(nv) == 0:
-                logger.warning(f"No NORDIC_VOLUMES folder found for this session.")
-                continue
-
-            # Check if NORDIC dat files can be converted using dcmdat2niix
-            can_convert = True
-            nii_path = f"{dicom_path}/{session}_nii"
-            if shutil.which('dcmdat2niix') != None:
-                os.mkdir(nii_path)
-                logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nii_path}")
+        if not dat_dir:
+            logger.info(f"Starting download of session {session}...")
+            query_params = {}
+            if hasattr(args, 'project_id'):
+                query_params['project_id'] = args.project_id
+            if args.experiment_id:
+                query_params['experiment_id'] = session
             else:
-                logger.info("dcmdat2niix not installed or has not been added to the PATH. Cannot convert NORDIC files into NIFTI")
-                can_convert = False
-            unconverted_series = set()    
-            
-            # Create dict mapping series number to timestamp in the name of the .dat file
-            uid_to_id = {s.get("UID")[:-6] : s.get("ID") for s in scan_xml_entries} # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
-            for f in nv:
-                zip_path = f"{dicom_path}/{session}/" + f._uri.split("/")[-1]
-                logger.info(f"Downloading {zip_path.split('/')[-1]}...")
-                f.get(zip_path)
-                unzip_path = zip_path[:-4]
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    logger.info(f"Unzipping to {unzip_path}...")
-                    zip_ref.extractall(unzip_path)
-                dat_files = glob(unzip_path + "/*.dat")
-                timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
-                for timestamp, dats in timestamp_to_dats.items():
-                    series_id = uid_to_id[timestamp]
-                    series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
-                    for dat in dats:
-                        shutil.move(dat, series_path)
+                query_params['subject_label'] = session
 
-                    # Check if there's a mismatch between number of .dcm and .dat files (indicative of run that stopped prematurely)
-                    dcms = glob(series_path + "/*.dcm")
-                    if (len(dats) != 0) and (len(dats) != len(dcms)):
-                        logger.warning(f"WARNING: number of .dat and .dcm files mismatched for series {series_id} with timestamp {timestamp}.")
-                        logger.warning(f"\t.# of dats: {len(dats)}")
-                        logger.warning(f"\t.# of dcms: {len(dcms)}")
-                        logger.warning(f"This mismatch may indicate that one of your runs has ended early; skipping running dcmdat2niix")
-                        unconverted_series.add(series_id)
-                        continue
-
-                    # Convert DICOM and DAT files to NIFTI
-                    if can_convert:
-                        logger.info(f"Running dcmdat2niix on series {series_id}...")
-                        dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba n -z o -w 1 -o {nii_path} {series_path}")
-                        with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
-                            while p.poll() == None:
-                                text = p.stdout.read1().decode("utf-8", "ignore")
-                                print(text, end="", flush=True)
-                            if p.poll() != 0:
-                                logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id}")
-                        print()
-                        
-                if len(unconverted_series) > 0:
-                    logger.warning(f"""
-                    The following series for session:{session}, experiment-ID:{exp['ID']} were
-                    not converted to NIFTI due to inconsistent number of DICOM and Dat files:
-                    {unconverted_series}
-                                    """)
+            exp = central.array.mrsessions(**query_params)
             
-              
+            if len(exp) == 0:
+                logger.error("CNDA query returned JsonTable object of length 0, meaning there were no results found with the given search parameters.")
+                raise RuntimeError("ERROR: CNDA query returned JsonTable object of length 0, meaning there were no results found with the given search parameters.")
+
+            if len(exp) > 1:
+                logger.error("CNDA query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
+                raise RuntimeError("ERROR: CNDA query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
+
+            project_id = exp["project"]
+            subject_id = exp["xnat:mrsessiondata/subject_id"]
+
+            logger.info("Downloading session xml...")
+            sub = central.select(f"/projects/{project_id}/subjects/{subject_id}")
+            with open(xml_path+f"/{session}.xml", "w") as f:
+                f.write(sub.get().decode())
+
+            xml_path = xml_path + f"/{session}.xml"
+            tree = et.parse(xml_path)
+            prefix = "{" + str(tree.getroot()).split("{")[-1].split("}")[0] + "}"
+            scan_xml_entries = tree.getroot().find(
+                f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
+            )
+            quality_pairs = {s.get("ID") : s.find(f"{prefix}quality").text
+                             for s in scan_xml_entries}
+
+            scans = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/*/").get()
+            scans.sort(key=lambda x: int(x))
+            logger.info(f"Found {len(scans)} scans for this session")
+
+            if scan_num:
+                    assert scan_num in scans, "Specified scan number does not exist for this session/experiment"
+                    sdex = scans.index(scan_num)
+                    scans = scans[sdex:]
+                    logger.info(f"Downloading scans for this session starting from series {scan_num}")
+
+            if args.skip_unusable:
+                i = 0
+                while i < len(scans):
+                    if quality_pairs[scans[i]] == "unusable":
+                        logger.info(f"Not downloading scan {scans[i]} (marked unusable)")
+                        del scans[i]
+                    else:
+                        i += 1
+
+            # Get total number of files
+            total_file_count, cur_file_count = 0, 0
+            for s in scans:
+                files = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/{s}/resources/files").get("")
+                total_file_count += len(files)
+            
+            logger.info(f"Total number of files: {total_file_count}")
+            # So log message does not interfere with format of the progress bar
+            logger.removeHandler(sout_handler)
+            with progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar:
+                for s in scans:
+                    logger.info(f"  Downloading scan {s}...")
+                    print(f"Downloading scan {s}...")
+                    series_path = dicom_path+f"/{session}/{s}/DICOM"
+                    os.makedirs(series_path, exist_ok=True)
+                    files = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/{s}/resources/files").get("")
+                    for f in files:
+                        print(f"\tFile {f.attributes()['Name']}, {fmt(int(f.size()))} ({cur_file_count+1} out of {total_file_count})")
+                        f.get(series_path + "/" +f._uri.split("/")[-1])
+                        cur_file_count += 1
+                        bar.update(cur_file_count)
+            logger.addHandler(sout_handler)
+            logger.info("Dicom download complete \n")
+
+            if not args.ignore_nordic_volumes:
+                nv = None
+                # Check for NORDIC files in this session
+                if not dat_dir:
+                    nv = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/resources/NORDIC_VOLUMES/files").get("")
+                else: 
+                    nv = [dat_dir]
+
+                if len(nv) == 0:
+                    logger.warning(f"No NORDIC_VOLUMES folder found for this session.")
+                    continue
+                logger.info("NORDIC files found for this session")
+
+                # Check if NORDIC dat files can be converted using dcmdat2niix
+                can_convert = True
+                nii_path = f"{dicom_path}/{session}_nii"
+                if shutil.which('dcmdat2niix') != None:
+                    os.makedirs(nii_path, exist_ok=None)
+                    logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nii_path}")
+                else:
+                    logger.info("dcmdat2niix not installed or has not been added to the PATH. Cannot convert NORDIC files into NIFTI")
+                    can_convert = False
+                unconverted_series = set()    
+                # Create dict mapping series number to timestamp in the name of the .dat file
+                if dat_dir:
+                    xml_path = xml_path + f"/{session}.xml"
+                    tree = et.parse(xml_path)
+                    prefix = "{" + str(tree.getroot()).split("{")[-1].split("}")[0] + "}"
+                    scan_xml_entries = tree.getroot().find(
+                        f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
+                    )
+                uid_to_id = {s.get("UID")[:-6] : s.get("ID") for s in scan_xml_entries} # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
+
+                for f in nv:
+                    dat_files = []
+                    if not dat_dir:
+                        zip_path = f"{dicom_path}/{session}/" + f._uri.split("/")[-1]
+                        logger.info(f"Downloading {zip_path.split('/')[-1]}...")
+                        f.get(zip_path)
+                        unzip_path = zip_path[:-4]
+                        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                            logger.info(f"Unzipping to {unzip_path}...")
+                            zip_ref.extractall(unzip_path)
+                        dat_files = glob(unzip_path + "/*.dat")
+                    else:
+                        dat_files = glob(f+"/*.dat")
+                    timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
+                    for timestamp, dats in timestamp_to_dats.items():
+                        series_id = uid_to_id[timestamp]
+                        series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
+                        for dat in dats:
+                            shutil.move(dat, series_path)
+
+                        # Check if there's a mismatch between number of .dcm and .dat files (indicative of run that stopped prematurely)
+                        dcms = glob(series_path + "/*.dcm")
+                        if (len(dats) != 0) and (len(dats) != len(dcms)):
+                            logger.warning(f"WARNING: number of .dat and .dcm files mismatched for series {series_id} with timestamp {timestamp}.")
+                            logger.warning(f"\t# of dats: {len(dats)}")
+                            logger.warning(f"\t# of dcms: {len(dcms)}")
+                            if not args.keep_short_runs:
+                                logger.warning(f"This mismatch may indicate that one of your runs has ended early; skipping running dcmdat2niix \n")
+                                unconverted_series.add(series_id)
+                                continue
+
+                        # Convert DICOM and DAT files to NIFTI
+                        if can_convert:
+                            logger.info(f"Running dcmdat2niix on series {series_id}...")
+                            dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba n -z o -w 1 -o {nii_path} {series_path}")
+                            with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
+                                while p.poll() == None:
+                                    text = p.stdout.read1().decode("utf-8", "ignore")
+                                    print(text, end="", flush=True)
+                                if p.poll() == 0:
+                                    logger.info(f"dcmdat2niix complete for series {series_id} \n")
+                                else:
+                                    logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id} \n")
+                                    unconverted_series.add(series_id)
+                            # Remove incomplete files due to runs that are cut short
+                            if series_id in unconverted_series:
+                                bad_files = glob(f"{nii_path}/*_pha.*")
+                                for f in bad_files:
+                                    os.remove(f)
+                    if len(unconverted_series) > 0:
+                        logger.warning(f"""
+                        The following series for session:{session} were 
+                        not converted to NIFTI due to either being skipped or an error during dcmdat2niix.
+                        Check these series for possibly corrupted Dat files: 
+                        {unconverted_series}
+                                        \n""")
+    logger.info("\n...Downloads Complete")
