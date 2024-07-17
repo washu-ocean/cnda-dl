@@ -24,11 +24,15 @@ import xml.etree.ElementTree as et
 import zipfile
 from textwrap import dedent
 
-'''
-dir_title: how the directory is denoted in prompt messages
-path_str: string representing path to new directory
-'''
 def handle_dir_creation(dir_title, path_str):
+    '''
+    Creates (or doesn't create) directories specified in the arguments, if any are still needed.
+
+    :param dir_title: how the directory is denoted in prompt messages
+    :type dir_title: str
+    :param path_str: string representing path to new directory
+    :type path_str: str
+    '''
     prompt, prompt_chosen = input(f"{dir_title} directory does not exist: {path_str}. Create one? (y/n)\n"), False
     while not prompt_chosen:
         if len(prompt) < 1 or prompt[0].lower() not in 'yn':
