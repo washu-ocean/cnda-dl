@@ -117,6 +117,10 @@ def main():
         assert len(session_list) == 1, "ERROR: Scan number is specified but there is more than one session/experiment to download"
         scan_num = args.scan_number
 
+    dat_dir = None
+    if hasattr(args, "map_dats") and args.map_dats != None and os.path.isdir(args.map_dats):
+        dat_dir = Path(args.map_dats).as_posix()
+
     if not os.path.isdir(dicom_path):
         handle_dir_creation("DICOM", dicom_path)
     if not os.path.isdir(xml_path):
