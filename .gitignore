@@ -15,6 +15,7 @@ venv-*
 *tar
 *csv
 *dcm
+*xml
 .DS_Store
 tmp.py
 scratch
