@@ -211,93 +211,94 @@ def main():
             logger.addHandler(sout_handler)
             logger.info("Dicom download complete \n")
 
-            if not args.ignore_nordic_volumes:
-                nv = None
-                # Check for NORDIC files in this session
+        if not args.ignore_nordic_volumes:
+            nv = None
+            # Check for NORDIC files in this session
+            if not dat_dir:
+                nv = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/resources/NORDIC_VOLUMES/files").get("")
+            else: 
+                nv = [dat_dir]
+
+            if len(nv) == 0:
+                logger.warning(f"No NORDIC_VOLUMES folder found for this session.")
+                continue
+            logger.info("NORDIC files found for this session")
+
+            # Check if NORDIC dat files can be converted using dcmdat2niix
+            can_convert = True
+            nii_path = f"{dicom_path}/{session}_nii"
+            if shutil.which('dcmdat2niix') != None:
+                os.makedirs(nii_path, exist_ok=None)
+                logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nii_path}")
+            else:
+                logger.info("dcmdat2niix not installed or has not been added to the PATH. Cannot convert NORDIC files into NIFTI")
+                can_convert = False
+            unconverted_series = set()    
+            # Create dict mapping series number to timestamp in the name of the .dat file
+            if dat_dir:
+                xml_path = xml_path + f"/{session}.xml"
+                tree = et.parse(xml_path)
+                prefix = "{" + str(tree.getroot()).split("{")[-1].split("}")[0] + "}"
+                scan_xml_entries = tree.getroot().find(
+                    f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
+                )
+            uid_to_id = {s.get("UID")[:-6] : s.get("ID") for s in scan_xml_entries} # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
+
+            for f in nv:
+                dat_files = []
                 if not dat_dir:
-                    nv = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/resources/NORDIC_VOLUMES/files").get("")
-                else: 
-                    nv = [dat_dir]
-
-                if len(nv) == 0:
-                    logger.warning(f"No NORDIC_VOLUMES folder found for this session.")
-                    continue
-                logger.info("NORDIC files found for this session")
-
-                # Check if NORDIC dat files can be converted using dcmdat2niix
-                can_convert = True
-                nii_path = f"{dicom_path}/{session}_nii"
-                if shutil.which('dcmdat2niix') != None:
-                    os.makedirs(nii_path, exist_ok=None)
-                    logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nii_path}")
+                    zip_path = f"{dicom_path}/{session}/" + f._uri.split("/")[-1]
+                    logger.info(f"Downloading {zip_path.split('/')[-1]}...")
+                    f.get(zip_path)
+                    unzip_path = zip_path[:-4]
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        logger.info(f"Unzipping to {unzip_path}...")
+                        zip_ref.extractall(unzip_path)
+                    dat_files = glob(unzip_path + "/*.dat")
                 else:
-                    logger.info("dcmdat2niix not installed or has not been added to the PATH. Cannot convert NORDIC files into NIFTI")
-                    can_convert = False
-                unconverted_series = set()    
-                # Create dict mapping series number to timestamp in the name of the .dat file
-                if dat_dir:
-                    xml_path = xml_path + f"/{session}.xml"
-                    tree = et.parse(xml_path)
-                    prefix = "{" + str(tree.getroot()).split("{")[-1].split("}")[0] + "}"
-                    scan_xml_entries = tree.getroot().find(
-                        f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
-                    )
-                uid_to_id = {s.get("UID")[:-6] : s.get("ID") for s in scan_xml_entries} # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
+                    dat_files = glob(f+"/*.dat")
+                timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
+                for timestamp, dats in timestamp_to_dats.items():
+                    series_id = uid_to_id[timestamp]
+                    series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
+                    for dat in dats:
+                        shutil.move(dat, series_path)
 
-                for f in nv:
-                    dat_files = []
-                    if not dat_dir:
-                        zip_path = f"{dicom_path}/{session}/" + f._uri.split("/")[-1]
-                        logger.info(f"Downloading {zip_path.split('/')[-1]}...")
-                        f.get(zip_path)
-                        unzip_path = zip_path[:-4]
-                        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                            logger.info(f"Unzipping to {unzip_path}...")
-                            zip_ref.extractall(unzip_path)
-                        dat_files = glob(unzip_path + "/*.dat")
-                    else:
-                        dat_files = glob(f+"/*.dat")
-                    timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
-                    for timestamp, dats in timestamp_to_dats.items():
-                        series_id = uid_to_id[timestamp]
-                        series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
-                        for dat in dats:
-                            shutil.move(dat, series_path)
+                    # Check if there's a mismatch between number of .dcm and .dat files (indicative of run that stopped prematurely)
+                    dcms = glob(series_path + "/*.dcm")
+                    if (len(dats) != 0) and (len(dats) != len(dcms)):
+                        logger.warning(f"WARNING: number of .dat and .dcm files mismatched for series {series_id} with timestamp {timestamp}.")
+                        logger.warning(f"\t# of dats: {len(dats)}")
+                        logger.warning(f"\t# of dcms: {len(dcms)}")
+                        if not args.keep_short_runs:
+                            logger.warning(f"This mismatch may indicate that one of your runs has ended early; skipping running dcmdat2niix \n")
+                            unconverted_series.add(series_id)
+                            continue
 
-                        # Check if there's a mismatch between number of .dcm and .dat files (indicative of run that stopped prematurely)
-                        dcms = glob(series_path + "/*.dcm")
-                        if (len(dats) != 0) and (len(dats) != len(dcms)):
-                            logger.warning(f"WARNING: number of .dat and .dcm files mismatched for series {series_id} with timestamp {timestamp}.")
-                            logger.warning(f"\t# of dats: {len(dats)}")
-                            logger.warning(f"\t# of dcms: {len(dcms)}")
-                            if not args.keep_short_runs:
-                                logger.warning(f"This mismatch may indicate that one of your runs has ended early; skipping running dcmdat2niix \n")
+                    # Convert DICOM and DAT files to NIFTI
+                    if can_convert:
+                        logger.info(f"Running dcmdat2niix on series {series_id}...")
+                        dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba n -z o -w 1 -o {nii_path} {series_path}")
+                        with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
+                            while p.poll() == None:
+                                text = p.stdout.read1().decode("utf-8", "ignore")
+                                print(text, end="", flush=True)
+                            if p.poll() == 0:
+                                logger.info(f"dcmdat2niix complete for series {series_id} \n")
+                            else:
+                                logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id} \n")
                                 unconverted_series.add(series_id)
-                                continue
+                        # Remove incomplete files due to runs that are cut short
+                        if series_id in unconverted_series:
+                            bad_files = glob(f"{nii_path}/*_pha.*")
+                            for f in bad_files:
+                                os.remove(f)
+                if len(unconverted_series) > 0:
+                    logger.warning(f"""
+                    The following series for session:{session} were 
+                    not converted to NIFTI due to either being skipped or an error during dcmdat2niix.
+                    Check these series for possibly corrupted Dat files: 
+                    {unconverted_series}
+                                    \n""")
 
-                        # Convert DICOM and DAT files to NIFTI
-                        if can_convert:
-                            logger.info(f"Running dcmdat2niix on series {series_id}...")
-                            dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba n -z o -w 1 -o {nii_path} {series_path}")
-                            with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
-                                while p.poll() == None:
-                                    text = p.stdout.read1().decode("utf-8", "ignore")
-                                    print(text, end="", flush=True)
-                                if p.poll() == 0:
-                                    logger.info(f"dcmdat2niix complete for series {series_id} \n")
-                                else:
-                                    logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id} \n")
-                                    unconverted_series.add(series_id)
-                            # Remove incomplete files due to runs that are cut short
-                            if series_id in unconverted_series:
-                                bad_files = glob(f"{nii_path}/*_pha.*")
-                                for f in bad_files:
-                                    os.remove(f)
-                    if len(unconverted_series) > 0:
-                        logger.warning(f"""
-                        The following series for session:{session} were 
-                        not converted to NIFTI due to either being skipped or an error during dcmdat2niix.
-                        Check these series for possibly corrupted Dat files: 
-                        {unconverted_series}
-                                        \n""")
     logger.info("\n...Downloads Complete")
