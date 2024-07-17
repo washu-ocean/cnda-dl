@@ -24,6 +24,20 @@ import xml.etree.ElementTree as et
 import zipfile
 from textwrap import dedent
 
+# Function to format number of bytes per file into MB, GB, etc.
+fmt = EngFormatter('B')
+
+log_path = f"{Path.home().as_posix()}/cnda-dl.log"
+logging.basicConfig(level=logging.INFO,
+                    handlers=[
+                        logging.FileHandler(log_path)
+                    ])
+sout_handler = logging.StreamHandler(stream=sys.stdout)
+logger = logging.getLogger(__name__)
+logger.addHandler(sout_handler)
+logger.info("Starting cnda-dl...")
+logger.info(f"Log will be stored at {log_path}")
+
 def handle_dir_creation(dir_title, path_str):
     '''
     Creates (or doesn't create) directories specified in the arguments, if any are still needed.
@@ -79,17 +93,6 @@ def main():
                         action='store_true')
     args = parser.parse_args()
 
-    logger = logging.getLogger(__name__)
-    log_path = f"{Path.home().as_posix()}/cnda-dl.log"
-    logging.basicConfig(level=logging.INFO,
-                        handlers=[
-                            logging.StreamHandler(),
-                            logging.FileHandler(log_path)
-                        ])
-    logger.info("Starting cnda-dl...")
-    logger.info(f"Log will be stored at {log_path}")
-    # Function to format number of bytes per file into MB, GB, etc.
-    fmt = EngFormatter('B')
 
     if not args.experiment_id and not hasattr(args, 'project_id'):
         raise RuntimeError("ERROR: Must specify --project_id (or -p) if querying using subject labels instead of experiment ids.")
