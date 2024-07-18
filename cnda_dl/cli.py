@@ -22,10 +22,6 @@ import subprocess
 import sys
 import xml.etree.ElementTree as et
 import zipfile
-from textwrap import dedent
-
-# Function to format number of bytes per file into MB, GB, etc.
-fmt = EngFormatter('B')
 
 log_path = f"{Path.home().as_posix()}/cnda-dl.log"
 logging.basicConfig(level=logging.INFO,
@@ -65,6 +61,9 @@ def handle_dir_creation(dir_title, path_str):
             logger.info("Invalid response.")
             prompt = input(f"{dir_title} directory does not exist: {path_str}. Create one? (y/n)\n")
 
+# Function to format number of bytes per file into MB, GB, etc.
+fmt = EngFormatter('B')
+
 def main():
     parser = argparse.ArgumentParser(
         prog = "cnda-dl",
@@ -88,9 +87,6 @@ def main():
     parser.add_argument("-n", "--ignore_nordic_volumes",
                         help="Don't download a NORDIC_VOLUMES folder from CNDA if it exists.",
                         action='store_true')
-    parser.add_argument("--skip_unusable",
-                        help="Don't download any scans marked as 'unusable' in the XML",
-                        action='store_true')
     parser.add_argument("--map_dats", 
                         help=
                         """The path to a directory containting .dat files you wish to pair with DICOM files. Using this argument
@@ -99,8 +95,10 @@ def main():
     parser.add_argument("-ks","--keep_short_runs",
                         action="store_true",
                         help="Flag to indicate that runs stopped short should still be converted to nifti")
+    parser.add_argument("--skip_unusable", 
+                        help="Don't download any scans marked as 'unusable' in the XML",
+                        action='store_true')
     args = parser.parse_args()
-
 
     if not args.experiment_id and not hasattr(args, 'project_id'):
         raise RuntimeError("ERROR: Must specify --project_id (or -p) if querying using subject labels instead of experiment ids.")
@@ -166,7 +164,7 @@ def main():
                 f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
             )
             quality_pairs = {s.get("ID") : s.find(f"{prefix}quality").text
-                             for s in scan_xml_entries}
+                            for s in scan_xml_entries}
 
             scans = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/*/").get()
             scans.sort(key=lambda x: int(x))
@@ -192,7 +190,7 @@ def main():
             for s in scans:
                 files = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/{s}/resources/files").get("")
                 total_file_count += len(files)
-            
+
             logger.info(f"Total number of files: {total_file_count}")
             # So log message does not interfere with format of the progress bar
             logger.removeHandler(sout_handler)
@@ -216,7 +214,7 @@ def main():
             # Check for NORDIC files in this session
             if not dat_dir:
                 nv = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/resources/NORDIC_VOLUMES/files").get("")
-            else: 
+            else:
                 nv = [dat_dir]
 
             if len(nv) == 0:
@@ -228,7 +226,7 @@ def main():
             can_convert = True
             nii_path = f"{dicom_path}/{session}_nii"
             if shutil.which('dcmdat2niix') != None:
-                os.makedirs(nii_path, exist_ok=None)
+                os.makedirs(nii_path, exist_ok=True)
                 logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nii_path}")
             else:
                 logger.info("dcmdat2niix not installed or has not been added to the PATH. Cannot convert NORDIC files into NIFTI")
