@@ -22,19 +22,10 @@ import subprocess
 import sys
 import xml.etree.ElementTree as et
 import zipfile
+import datetime
 
-log_path = f"{Path.home().as_posix()}/cnda-dl.log"
-logging.basicConfig(level=logging.INFO,
-                    handlers=[
-                        logging.FileHandler(log_path)
-                    ])
-sout_handler = logging.StreamHandler(stream=sys.stdout)
-logger = logging.getLogger(__name__)
-logger.addHandler(sout_handler)
-logger.info("Starting cnda-dl...")
-logger.info(f"Log will be stored at {log_path}")
 
-def handle_dir_creation(dir_title, path_str):
+def handle_dir_creation(dir_title, path_str, logger):
     '''
     Creates (or doesn't create) directories specified in the arguments, if any are still needed.
 
@@ -92,6 +83,8 @@ def main():
                         """The path to a directory containting .dat files you wish to pair with DICOM files. Using this argument
                         means that all data is already available locally and the script will only pair Dat files to DICOMs and 
                         run dcmdat2niix""")
+    parser.add_argument("--log_dir",
+                        help="Points to a specified directory that will store the log file. Will not make the directory if it doesn't exist.")
     parser.add_argument("-ks","--keep_short_runs",
                         action="store_true",
                         help="Flag to indicate that runs stopped short should still be converted to nifti")
@@ -99,6 +92,25 @@ def main():
                         help="Don't download any scans marked as 'unusable' in the XML",
                         action='store_true')
     args = parser.parse_args()
+
+    log_timestamp = datetime.datetime.now().strftime('%m-%d-%y_%I:%M%p')
+    if args.log_dir and os.path.isdir(args.log_dir):
+        log_path = f"{args.log_dir}/cnda-dl_{log_timestamp}.log"
+    elif args.log_dir:
+        raise RuntimeError("Specified log directory at {args.log_dir} does not exist. Exiting...")
+    else:
+        log_dir = f"{Path.home().as_posix()}/.local/share/cnda-dl/logs"
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = f"{log_dir}/cnda-dl_{log_timestamp}.log"
+    logging.basicConfig(level=logging.INFO,
+                        handlers=[
+                            logging.FileHandler(log_path)
+                        ])
+    sout_handler = logging.StreamHandler(stream=sys.stdout)
+    logger = logging.getLogger(__name__)
+    logger.addHandler(sout_handler)
+    logger.info("Starting cnda-dl...")
+    logger.info(f"Log will be stored at {log_path}")
 
     if not args.experiment_id and not hasattr(args, 'project_id'):
         raise RuntimeError("ERROR: Must specify --project_id (or -p) if querying using subject labels instead of experiment ids.")
@@ -120,9 +132,9 @@ def main():
         dat_dir = Path(args.map_dats).as_posix()
 
     if not os.path.isdir(dicom_path):
-        handle_dir_creation("DICOM", dicom_path)
+        handle_dir_creation("DICOM", dicom_path, logger)
     if not os.path.isdir(xml_path):
-        handle_dir_creation("XML", xml_path)
+        handle_dir_creation("XML", xml_path, logger)
 
     central = None
     if not dat_dir:
