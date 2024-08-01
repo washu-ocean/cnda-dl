@@ -295,14 +295,13 @@ def main():
                             unconverted_series.add(series_id)
                             continue
                         else:
-                            print("----------- Keeping Short Runs ------------")
                             if (len(dcms) == len(dats) + 1) and len(dcms) > 1:
                                 last_dcm = glob(f"{series_path}/*-{len(dcms)}-*.dcm")
                                 if len(last_dcm) == 1:
-                                    print("----------- Removing the last dicom ------------")
+                                    logger.info("Removing the last mismatched dicom")
                                     os.remove(last_dcm[0])
                                 else:
-                                    print("----------- Could Not find the last dicom ------------")
+                                    print("Could Not find the last mismatched dicom")
                                 
                                 
 
@@ -319,11 +318,7 @@ def main():
                             else:
                                 logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id} \n")
                                 error_series.add(series_id)
-                        # Remove incomplete files due to runs that are cut short
-                        # if series_id in unconverted_series:
-                        #     bad_files = glob(f"{nii_path}/*_pha.*")
-                        #     for f in bad_files:
-                        #         os.remove(f)
+
                 if len(unconverted_series) > 0:
                     logger.warning(f"""
                     The following series for session:{session} were 
