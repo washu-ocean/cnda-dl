@@ -269,7 +269,7 @@ def main():
                 else:
                     dat_files = glob(f+"/*.dat")
                 timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
-                breakpoint()
+        
                 for timestamp, dats in timestamp_to_dats.items():
                     series_id = uid_to_id[timestamp]
                     series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
