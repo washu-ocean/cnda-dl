@@ -85,9 +85,9 @@ def main():
                         run dcmdat2niix""")
     parser.add_argument("--log_dir",
                         help="Points to a specified directory that will store the log file. Will not make the directory if it doesn't exist.")
-    parser.add_argument("-ks","--keep_short_runs",
+    parser.add_argument("-ssr","--skip_short_runs",
                         action="store_true",
-                        help="Flag to indicate that runs stopped short should still be converted to nifti")
+                        help="Flag to indicate that runs stopped short should not be converted to NIFTI")
     parser.add_argument("--skip_unusable", 
                         help="Don't download any scans marked as 'unusable' in the XML",
                         action='store_true')
@@ -243,7 +243,8 @@ def main():
             else:
                 logger.info("dcmdat2niix not installed or has not been added to the PATH. Cannot convert NORDIC files into NIFTI")
                 can_convert = False
-            unconverted_series = set()    
+            unconverted_series = set()
+            error_series = set()
             # Create dict mapping series number to timestamp in the name of the .dat file
             if dat_dir:
                 xml_path = xml_path + f"/{session}.xml"
@@ -268,22 +269,42 @@ def main():
                 else:
                     dat_files = glob(f+"/*.dat")
                 timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
+                breakpoint()
                 for timestamp, dats in timestamp_to_dats.items():
                     series_id = uid_to_id[timestamp]
                     series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
                     for dat in dats:
-                        shutil.move(dat, series_path)
+                        dat_path = Path(dat)
+                        dat_dest = Path(f"{series_path}/{dat.split('/')[-1]}")
+                        shutil.move(dat_path.resolve(), dat_dest.resolve())
+
+                    # Either there are no accompanying dats, or they were already in the series directory
+                    if len(dats) == 0:
+                        dats = glob(series_path + "/*.dat")
 
                     # Check if there's a mismatch between number of .dcm and .dat files (indicative of run that stopped prematurely)
                     dcms = glob(series_path + "/*.dcm")
+                    logger.info(f"length of dats: {len(dats)}")
+                    logger.info(f"length of dcms: {len(dcms)}")
                     if (len(dats) != 0) and (len(dats) != len(dcms)):
                         logger.warning(f"WARNING: number of .dat and .dcm files mismatched for series {series_id} with timestamp {timestamp}.")
                         logger.warning(f"\t# of dats: {len(dats)}")
                         logger.warning(f"\t# of dcms: {len(dcms)}")
-                        if not args.keep_short_runs:
+                        if args.skip_short_runs:
                             logger.warning(f"This mismatch may indicate that one of your runs has ended early; skipping running dcmdat2niix \n")
                             unconverted_series.add(series_id)
                             continue
+                        else:
+                            print("----------- Keeping Short Runs ------------")
+                            if (len(dcms) == len(dats) + 1) and len(dcms) > 1:
+                                last_dcm = glob(f"{series_path}/*-{len(dcms)}-*.dcm")
+                                if len(last_dcm) == 1:
+                                    print("----------- Removing the last dicom ------------")
+                                    os.remove(last_dcm[0])
+                                else:
+                                    print("----------- Could Not find the last dicom ------------")
+                                
+                                
 
                     # Convert DICOM and DAT files to NIFTI
                     if can_convert:
@@ -297,18 +318,27 @@ def main():
                                 logger.info(f"dcmdat2niix complete for series {series_id} \n")
                             else:
                                 logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id} \n")
-                                unconverted_series.add(series_id)
+                                error_series.add(series_id)
                         # Remove incomplete files due to runs that are cut short
-                        if series_id in unconverted_series:
-                            bad_files = glob(f"{nii_path}/*_pha.*")
-                            for f in bad_files:
-                                os.remove(f)
+                        # if series_id in unconverted_series:
+                        #     bad_files = glob(f"{nii_path}/*_pha.*")
+                        #     for f in bad_files:
+                        #         os.remove(f)
                 if len(unconverted_series) > 0:
                     logger.warning(f"""
                     The following series for session:{session} were 
-                    not converted to NIFTI due to either being skipped or an error during dcmdat2niix.
-                    Check these series for possibly corrupted Dat files: 
+                    not converted to NIFTI beause the '--skip_short_runs'
+                    option was selected
                     {unconverted_series}
+                                    \n""")
+                if len(error_series) > 0:
+                    logger.warning(f"""
+                    The following series for session:{session} encountered
+                    an error while being converted to NIFTI. This can be due 
+                    to corrupted dat files (.dat files with zero or very little 
+                    data) or if they are Physiolog acquisitions. Check these 
+                    series for possible causes.
+                    {error_series}
                                     \n""")
 
     logger.info("\n...Downloads Complete")
