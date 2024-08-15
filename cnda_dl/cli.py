@@ -272,6 +272,9 @@ def main():
         
                 for timestamp, dats in timestamp_to_dats.items():
                     series_id = uid_to_id[timestamp]
+                    # if this series number was not downloaded, skip these dats
+                    if series_id not in scans:
+                        continue
                     series_path = f"{dicom_path}/{session}/{series_id}/DICOM"
                     for dat in dats:
                         dat_path = Path(dat)
