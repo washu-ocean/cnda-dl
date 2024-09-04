@@ -206,6 +206,8 @@ def main():
             logger.info(f"Total number of files: {total_file_count}")
             # So log message does not interfere with format of the progress bar
             logger.removeHandler(sout_handler)
+            downloaded_files = set()
+            zero_size_files = set()
             with progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar:
                 for s in scans:
                     logger.info(f"  Downloading scan {s}...")
@@ -214,12 +216,30 @@ def main():
                     os.makedirs(series_path, exist_ok=True)
                     files = central.select(f"/projects/{project_id}/experiments/{exp['ID']}/scans/{s}/resources/files").get("")
                     for f in files:
-                        print(f"\tFile {f.attributes()['Name']}, {fmt(int(f.size()))} ({cur_file_count+1} out of {total_file_count})")
-                        f.get(series_path + "/" +f._uri.split("/")[-1])
+                        add_file = True
+                        file_name = series_path + "/" +f._uri.split("/")[-1]
+                        file_size = fmt(int(f.size())) if f.size() else fmt(0)
+                        print(f"\tFile {f.attributes()['Name']}, {file_size} ({cur_file_count+1} out of {total_file_count})")
+                        if not f.size():
+                            logger.info(f"File - {f._uri} - does not contain any data.")
+                            msg = "\t-- File is empty"
+                            if file_name in downloaded_files:
+                                msg += " -- another copy was already downloaded, skipping download of this file"
+                                add_file = False
+                            else:
+                                zero_size_files.add(file_name)
+                            print(msg)
+                        elif file_name in zero_size_files:
+                            zero_size_files.remove(file_name)
+                        if add_file:
+                            f.get(file_name)
+                            downloaded_files.add(file_name)
                         cur_file_count += 1
                         bar.update(cur_file_count)
             logger.addHandler(sout_handler)
             logger.info("Dicom download complete \n")
+            logger.warning(f"The following downloaded files contained no data:\n{[f.label() for f in zero_size_files]}")
+            logger.warning(f"Check these files for unintended missing data!")
 
         if not args.ignore_nordic_volumes:
             nv = None
