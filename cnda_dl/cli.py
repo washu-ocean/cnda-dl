@@ -137,6 +137,7 @@ def main():
         handle_dir_creation("XML", xml_path, logger)
 
     central = None
+    scans = None
     if not dat_dir:
         central = Interface(server="https://cnda.wustl.edu/")
 
@@ -273,8 +274,9 @@ def main():
                 scan_xml_entries = tree.getroot().find(
                     f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
                 )
-            uid_to_id = {s.get("UID")[:-6] : s.get("ID") for s in scan_xml_entries} # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
-
+                scans = [p.split("/")[-1] for p in (glob(f"{dicom_path}/{session}/[0-9]") + glob(f"{dicom_path}/{session}/[0-9][0-9]"))]
+                scans.sort(key=lambda x:int(x))
+            uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in scan_xml_entries} # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
             for f in nv:
                 dat_files = []
                 if not dat_dir:
@@ -289,7 +291,6 @@ def main():
                 else:
                     dat_files = glob(f+"/*.dat")
                 timestamp_to_dats = {t: [d for d in dat_files if t in d] for t in uid_to_id.keys()}
-        
                 for timestamp, dats in timestamp_to_dats.items():
                     series_id = uid_to_id[timestamp]
                     # if this series number was not downloaded, skip these dats
