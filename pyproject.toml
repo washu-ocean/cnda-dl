@@ -6,11 +6,11 @@ authors = ["Ramone Agard <agardr@wustl.edu>", "Joey Scanga <joeyscanga92@gmail.c
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-matplotlib = "3.7.2"
-matplotlib-inline = "0.1.6"
-progressbar2 = "4.4.2"
-pyxnat = "1.6.2"
+python = "^3.9"
+matplotlib = ">=3.7.2"
+matplotlib-inline = ">=0.1.6"
+progressbar2 = ">=4.4.2"
+pyxnat = ">=1.6.2"
 
 [tool.poetry.scripts]
 cnda-dl = "cnda_dl.cli:main"
