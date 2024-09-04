@@ -362,4 +362,4 @@ def main():
     logger.info("\n...Downloads Complete")
 
 if __name__ == "__main__":
-    main
+    main()
