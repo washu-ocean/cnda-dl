@@ -371,8 +371,6 @@ def main():
    
 
     # set up file logging
-    # while logger.hasHandlers():
-    #     logger.removeHandler(logger.handlers[0])
     file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(logging.Formatter(default_log_format))
     logger.addHandler(file_handler)
