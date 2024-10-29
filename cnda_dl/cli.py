@@ -237,7 +237,7 @@ def dat_dcm_to_nifti(session : str,
         logger.warning("dcmdat2niix not installed or has not been added to the PATH. Cannot convert data files into NIFTI")
 
     # find all of the scans that are in the dicom directory for this session
-    downloaded_scans = [p.split("/")[-1] for p in (list(session_dicom_dir.glob("[0-9]"))
+    downloaded_scans = [p.name.split("/")[-1] for p in (list(session_dicom_dir.glob("[0-9]"))
                                 + list(session_dicom_dir.glob("[0-9][0-9]")))]
     downloaded_scans.sort(key=lambda x:int(x))
 
@@ -249,7 +249,7 @@ def dat_dcm_to_nifti(session : str,
     
     # collect all of the .dat files and map them to their UIDs
     dat_files = list(dat_directory.glob("*.dat"))
-    uid_to_dats = {uid : [d for d in dat_files if uid in d] for uid in uid_to_id.keys()}
+    uid_to_dats = {uid : [d for d in dat_files if uid in d.name] for uid in uid_to_id.keys()}
 
     for uid, dats in uid_to_dats.items():
         series_id = uid_to_id[uid]
