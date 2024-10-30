@@ -236,6 +236,7 @@ def dat_dcm_to_nifti(session : str,
     else:
         logger.warning("dcmdat2niix not installed or has not been added to the PATH. Cannot convert data files into NIFTI")
 
+
     # find all of the scans that are in the dicom directory for this session
     downloaded_scans = [p.name.split("/")[-1] for p in (list(session_dicom_dir.glob("[0-9]"))
                                 + list(session_dicom_dir.glob("[0-9][0-9]")))]
@@ -244,8 +245,8 @@ def dat_dcm_to_nifti(session : str,
     # create a map of downloaded scan IDs to UIDs to later match with the UIDs in the .dat files
     xml_scans = get_xml_scans(xml_file=xml_file_path)
     # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string     
-    uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans 
-                 if s in downloaded_scans}
+    uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans if s.get("ID") in downloaded_scans}
+                 
     
     # collect all of the .dat files and map them to their UIDs
     dat_files = list(dat_directory.glob("*.dat"))
