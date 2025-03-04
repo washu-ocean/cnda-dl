@@ -1,23 +1,36 @@
-[tool.poetry]
+[tool.pdm.dev-dependencies]
+dev = [
+    "pytest<9.0.0,>=8.2.2",
+]
+
+[tool.pdm.build]
+includes = []
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[project]
+authors = [
+    {name = "Ramone Agard", email = "agardr@wustl.edu"},
+    {name = "Joey Scanga", email = "joeyscanga92@gmail.com"},
+]
+requires-python = "<4.0,>=3.9"
+dependencies = [
+    "matplotlib>=3.7.2",
+    "matplotlib-inline>=0.1.6",
+    "progressbar2>=4.4.2",
+    "pyxnat>=1.6.2",
+]
 name = "cnda_dl"
 version = "0.1.0"
 description = "A command line utility for downloading fMRI data from CNDA"
-authors = ["Ramone Agard <agardr@wustl.edu>", "Joey Scanga <joeyscanga92@gmail.com>"]
 readme = "README.md"
 
-[tool.poetry.dependencies]
-python = "^3.9"
-matplotlib = ">=3.7.2"
-matplotlib-inline = ">=0.1.6"
-progressbar2 = ">=4.4.2"
-pyxnat = ">=1.6.2"
-
-[tool.poetry.scripts]
+[project.scripts]
 cnda-dl = "cnda_dl.cli:main"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.2.2"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[dependency-groups]
+dev = [
+    "pytest<9.0.0,>=8.2.2",
+]
