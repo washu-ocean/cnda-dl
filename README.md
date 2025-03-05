@@ -1,9 +1,17 @@
 # Dev installation
 
+Ensure `uv` is installed:
+
 ```
-python3 -m venv .venv
-. .venv/bin/activate
-pip install poetry==1.8.3
-poetry install
+which uv
 ```
 
+If not, this can be installed following instructions [here](https://docs.astral.sh/uv/getting-started/installation/).
+
+Then run:
+
+```
+git clone https://github.com/washu-ocean/cnda-dl.git
+cd cnda-dl
+uv sync
+```
