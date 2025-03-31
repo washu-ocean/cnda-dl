@@ -33,7 +33,7 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger()
 
 
-def handle_dir_creation(dir_path : Path):
+def handle_dir_creation(dir_path: Path):
     '''
     Creates (or doesn't create) directories specified in the arguments, if any are still needed.
 
@@ -60,10 +60,10 @@ def handle_dir_creation(dir_path : Path):
             logger.info("Invalid response.")
 
 
-def download_xml(central : Interface,
-                 subject_id : str,
-                 project_id : str,
-                 file_path : Path):
+def download_xml(central: Interface,
+                 subject_id: str,
+                 project_id: str,
+                 file_path: Path):
 
     logger.info("Downloading session xml...")
     sub = central.select(f"/projects/{project_id}/subjects/{subject_id}")
@@ -72,10 +72,10 @@ def download_xml(central : Interface,
     return True
 
 
-def retrieve_experiment(central : Interface,
-                        session : str,
-                        experiment_id: bool=False,
-                        project_id: str=None) -> pyxnat.jsonutil.JsonTable:
+def retrieve_experiment(central: Interface,
+                        session: str,
+                        experiment_id: bool = False,
+                        project_id: str = None) -> pyxnat.jsonutil.JsonTable:
 
     query_params = {}
     if project_id:
@@ -88,8 +88,8 @@ def retrieve_experiment(central : Interface,
     return central.array.mrsessions(**query_params)
 
 
-def get_xml_scans(xml_file : Path,
-                  quality_pair: bool=False) -> dict:
+def get_xml_scans(xml_file: Path,
+                  quality_pair: bool = False) -> dict:
 
     xml_tree = et.parse(xml_file)
     prefix = "{" + str(xml_tree.getroot()).split("{")[-1].split("}")[0] + "}"
@@ -97,17 +97,17 @@ def get_xml_scans(xml_file : Path,
         f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
     )
     if quality_pair:
-        return{s.get("ID") : s.find(f"{prefix}quality").text
-               for s in scan_xml_entries}
+        return {s.get("ID"): s.find(f"{prefix}quality").text
+                for s in scan_xml_entries}
     return scan_xml_entries
 
 
-def download_experiment_dicoms(session_experiment : pyxnat.jsonutil.JsonTable,
-                               central : Interface,
-                               session_dicom_dir : Path,
-                               xml_file_path : Path,
-                               scan_number_start: str=None,
-                               skip_unusable: bool=False):
+def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
+                               central: Interface,
+                               session_dicom_dir: Path,
+                               xml_file_path: Path,
+                               scan_number_start: str = None,
+                               skip_unusable: bool = False):
 
     project_id = session_experiment["project"]
     subject_id = session_experiment["xnat:mrsessiondata/subject_id"]
@@ -115,9 +115,9 @@ def download_experiment_dicoms(session_experiment : pyxnat.jsonutil.JsonTable,
 
     # download the xml for this session
     download_xml(central=central,
-                    subject_id=subject_id,
-                    project_id=project_id,
-                    file_path=xml_file_path)
+                 subject_id=subject_id,
+                 project_id=project_id,
+                 file_path=xml_file_path)
 
     # parse the xml file for the scan quality information
     quality_pairs = get_xml_scans(xml_file=xml_file_path,
@@ -130,10 +130,10 @@ def download_experiment_dicoms(session_experiment : pyxnat.jsonutil.JsonTable,
 
     # truncate the scan list if a starting point was given
     if scan_number_start:
-            assert scan_number_start in scans, "Specified scan number does not exist for this session/experiment"
-            sdex = scans.index(scan_number_start)
-            scans = scans[sdex:]
-            logger.info(f"Downloading scans for this session starting from series {scan_number_start}")
+        assert scan_number_start in scans, "Specified scan number does not exist for this session/experiment"
+        sdex = scans.index(scan_number_start)
+        scans = scans[sdex:]
+        logger.info(f"Downloading scans for this session starting from series {scan_number_start}")
 
     # remove the unusable scans from the list if skipping is requested
     if skip_unusable:
@@ -152,7 +152,6 @@ def download_experiment_dicoms(session_experiment : pyxnat.jsonutil.JsonTable,
     downloaded_files = set()
     zero_size_files = set()
     fmt = EngFormatter('B')
-
 
     # Download the session files
     with progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar:
@@ -191,10 +190,10 @@ def download_experiment_dicoms(session_experiment : pyxnat.jsonutil.JsonTable,
         logger.warning(f"The following downloaded files contained no data:\n{[f.label() for f in zero_size_files]} \nCheck these files for unintended missing data!")
 
 
-def download_nordic_zips(session : str,
-                         central : Interface,
-                         session_experiment : pyxnat.jsonutil.JsonTable,
-                         session_dicom_dir : Path) -> list[Path]:
+def download_nordic_zips(session: str,
+                         central: Interface,
+                         session_experiment: pyxnat.jsonutil.JsonTable,
+                         session_dicom_dir: Path) -> list[Path]:
 
     dat_dir_list = []
     project_id = session_experiment["project"]
@@ -216,12 +215,12 @@ def download_nordic_zips(session : str,
     return dat_dir_list
 
 
-def dat_dcm_to_nifti(session : str,
-                     dat_directory : Path,
-                     xml_file_path : Path,
-                     session_dicom_dir : Path,
+def dat_dcm_to_nifti(session: str,
+                     dat_directory: Path,
+                     xml_file_path: Path,
+                     session_dicom_dir: Path,
                      nifti_path: Path,
-                     skip_short_runs: bool=False):
+                     skip_short_runs: bool = False):
     # check if the required program is on the current PATH
     can_convert = False
     unconverted_series = set()
@@ -233,7 +232,6 @@ def dat_dcm_to_nifti(session : str,
     else:
         logger.warning("dcmdat2niix not installed or has not been added to the PATH. Cannot convert data files into NIFTI")
 
-
     # find all of the scans that are in the dicom directory for this session
     downloaded_scans = [p.name.split("/")[-1] for p in session_dicom_dir.glob("*")
                         if (p / "DICOM").exists()]
@@ -243,11 +241,10 @@ def dat_dcm_to_nifti(session : str,
     xml_scans = get_xml_scans(xml_file=xml_file_path)
     # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
     uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans if s.get("ID") in downloaded_scans}
-    
 
     # collect all of the .dat files and map them to their UIDs
     dat_files = list(dat_directory.glob("*.dat"))
-    uid_to_dats = {uid : [d for d in dat_files if uid in d.name] for uid in uid_to_id.keys()}
+    uid_to_dats = {uid: [d for d in dat_files if uid in d.name] for uid in uid_to_id.keys()}
 
     for uid, dats in uid_to_dats.items():
         series_id = uid_to_id[uid]
@@ -276,13 +273,13 @@ def dat_dcm_to_nifti(session : str,
                 unconverted_series.add(series_id)
                 continue
             elif (len(dcms) == len(dats) + 1) and len(dcms) > 1:
-                    logger.info("Attempting to remove the extra dcm file, and convert the remaing data")
-                    last_dcm = glob(f"{series_path}/*-{len(dcms)}-*.dcm")
-                    if len(last_dcm) == 1:
-                        logger.info(f"Removing the mismatched dicom: {last_dcm[0]}")
-                        os.remove(last_dcm[0])
-                    else:
-                        logger.warning("Could not find the mismatched dicom")
+                logger.info("Attempting to remove the extra dcm file, and convert the remaing data")
+                last_dcm = glob(f"{series_path}/*-{len(dcms)}-*.dcm")
+                if len(last_dcm) == 1:
+                    logger.info(f"Removing the mismatched dicom: {last_dcm[0]}")
+                    os.remove(last_dcm[0])
+                else:
+                    logger.warning("Could not find the mismatched dicom")
 
         # run the dcmdat2niix subprocess
         logger.info(f"Running dcmdat2niix on series {series_id}...")
@@ -316,11 +313,11 @@ def dat_dcm_to_nifti(session : str,
 
 def main():
     parser = argparse.ArgumentParser(
-        prog = "cnda-dl",
-        description= "download cnda data directly to wallace",
+        prog="cnda-dl",
+        description="download cnda data directly to wallace",
     )
     parser.add_argument('session_list',
-                        nargs= "+",
+                        nargs="+",
                         help="List of either subject labels or experiment ids, separated by spaces.")
     parser.add_argument("-d", "--dicom_dir", type=Path,
                         help="Path to the directory the dicom files should be downloaded to.",
@@ -338,11 +335,10 @@ def main():
                         help="Don't download a NORDIC_VOLUMES folder from CNDA if it exists.",
                         action='store_true')
     parser.add_argument("--map_dats", type=Path,
-                        help=
-                        """The path to a directory containting .dat files you wish to pair with DICOM files. Using this argument
+                        help="""The path to a directory containting .dat files you wish to pair with DICOM files. Using this argument
                         means that all data is already available locally and the script will only pair Dat files to DICOMs and
                         run dcmdat2niix""")
-    parser.add_argument("--log_dir", type = Path,
+    parser.add_argument("--log_dir", type=Path,
                         help="Points to a specified directory that will store the log file. Will not make the directory if it doesn't exist.")
     parser.add_argument("-ssr","--skip_short_runs",
                         action="store_true",
@@ -367,7 +363,6 @@ def main():
     if args.map_dats and not args.map_dats.is_dir():
         parser.error(f"'--map_dats' directory does not exist: {args.map_dats}")
 
-
     # set up file logging
     file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(logging.Formatter(default_log_format))
@@ -390,7 +385,6 @@ def main():
     if not xml_path.is_dir():
         handle_dir_creation(xml_path)
 
-
     # set up CNDA connection
     central = None
     if not args.map_dats:
@@ -407,15 +401,14 @@ def main():
             nifti_path = dicom_path / f"{session}_nii"
             try:
                 dat_dcm_to_nifti(session=session,
-                                dat_directory=args.map_dats,
-                                xml_file_path=xml_file_path,
-                                session_dicom_dir=session_dicom_dir,
-                                nifti_path=nifti_path,
-                                skip_short_runs=args.skip_short_runs)
+                                 dat_directory=args.map_dats,
+                                 xml_file_path=xml_file_path,
+                                 session_dicom_dir=session_dicom_dir,
+                                 nifti_path=nifti_path,
+                                 skip_short_runs=args.skip_short_runs)
             except Exception:
                 logger.exception(f"Error moving the .dat files to the appropriate scan directories and converting to NIFTI for session: {session}")
             continue
-
 
         # download the experiment data
         logger.info(f"Starting download of session {session}...")
@@ -424,9 +417,9 @@ def main():
         exp = None
         try:
             exp = retrieve_experiment(central=central,
-                                    session=session,
-                                    experiment_id=args.experiment_id,
-                                    project_id=args.project_id)
+                                      session=session,
+                                      experiment_id=args.experiment_id,
+                                      project_id=args.project_id)
             if len(exp) == 0:
                 raise RuntimeError("ERROR: CNDA query returned JsonTable object of length 0, meaning there were no results found with the given search parameters.")
             elif len(exp) > 1:
@@ -436,19 +429,17 @@ def main():
             logger.exception("Error retrieving the experiment from the given parameters. Double check your inputs or enter more specific parameters.")
             continue
 
-
         # try to download the files for this experiment
         try:
             download_experiment_dicoms(session_experiment=exp,
-                                    central=central,
-                                    session_dicom_dir=session_dicom_dir,
-                                    xml_file_path=xml_file_path,
-                                    scan_number_start=args.scan_number,
-                                    skip_unusable=args.skip_unusable)
+                                       central=central,
+                                       session_dicom_dir=session_dicom_dir,
+                                       xml_file_path=xml_file_path,
+                                       scan_number_start=args.scan_number,
+                                       skip_unusable=args.skip_unusable)
         except Exception:
             logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
             continue
-
 
         # if we are not skipping the NORDIC files
         if not args.ignore_nordic_volumes:
@@ -471,6 +462,7 @@ def main():
                 continue
 
     logger.info("\n...Downloads Complete")
+
 
 if __name__ == "__main__":
     main()
