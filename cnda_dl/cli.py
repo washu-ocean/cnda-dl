@@ -250,8 +250,8 @@ def dat_dcm_to_nifti(session: str,
         series_id = uid_to_id[uid]
         series_path = session_dicom_dir / series_id / "DICOM"
         for dat in dats:
-            if (series_path / dat.name).is_file():
-                (series_path / dat.name).unlink()
+            # if (series_path / dat.name).is_file():
+            #     (series_path / dat.name).unlink()
             shutil.move(dat.resolve(), series_path.resolve())
 
         # Either there are no accompanying dats, or they were already in the series directory
