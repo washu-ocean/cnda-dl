@@ -110,14 +110,7 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
                                skip_unusable: bool = False):
 
     project_id = session_experiment["project"]
-    subject_id = session_experiment["xnat:mrsessiondata/subject_id"]
     exp_id = session_experiment['ID']
-
-    # download the xml for this session
-    download_xml(central=central,
-                 subject_id=subject_id,
-                 project_id=project_id,
-                 file_path=xml_file_path)
 
     # parse the xml file for the scan quality information
     quality_pairs = get_xml_scans(xml_file=xml_file_path,
@@ -348,6 +341,9 @@ def main():
     parser.add_argument("--skip_unusable",
                         help="Don't download any scans marked as 'unusable' in the XML",
                         action='store_true')
+    parser.add_argument("--dats_only",
+                        help="Skip downloading DICOMs, only try to pull .dat files",
+                        action='store_true')
     args = parser.parse_args()
 
     # validate argument inputs
@@ -431,17 +427,23 @@ def main():
             logger.exception("Error retrieving the experiment from the given parameters. Double check your inputs or enter more specific parameters.")
             continue
 
+        # download the xml for this session
+        download_xml(central=central,
+                     subject_id=exp["xnat:mrsessiondata/subject_id"],
+                     project_id=exp["project"],
+                     file_path=xml_file_path)
         # try to download the files for this experiment
-        try:
-            download_experiment_dicoms(session_experiment=exp,
-                                       central=central,
-                                       session_dicom_dir=session_dicom_dir,
-                                       xml_file_path=xml_file_path,
-                                       scan_number_start=args.scan_number,
-                                       skip_unusable=args.skip_unusable)
-        except Exception:
-            logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
-            continue
+        if not args.dats_only:
+            try:
+                download_experiment_dicoms(session_experiment=exp,
+                                           central=central,
+                                           session_dicom_dir=session_dicom_dir,
+                                           xml_file_path=xml_file_path,
+                                           scan_number_start=args.scan_number,
+                                           skip_unusable=args.skip_unusable)
+            except Exception:
+                logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
+                continue
 
         # if we are not skipping the NORDIC files
         if not args.ignore_nordic_volumes:
