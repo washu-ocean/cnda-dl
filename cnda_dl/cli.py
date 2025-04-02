@@ -18,6 +18,7 @@ import os
 import progressbar
 import shlex
 import shutil
+import hashlib
 import subprocess
 import sys
 import xml.etree.ElementTree as et
@@ -187,18 +188,26 @@ def download_nordic_zips(session: str,
                          central: Interface,
                          session_experiment: pyxnat.jsonutil.JsonTable,
                          session_dicom_dir: Path) -> list[Path]:
-
     dat_dir_list = []
     project_id = session_experiment["project"]
     exp_id = session_experiment['ID']
+
+    def __digests_identical(zip_path: Path,
+                            cnda_file: pyxnat.core.resources.File):
+        if zip_path.is_file():  # Compare digests of zip on CNDA to see if we need to redownload
+            with zip_path.open("rb") as f:
+                if hashlib.md5(f.read()).hexdigest() == cnda_file.attributes()['digest']:  # digests match
+                    return True
+        return False
 
     # check for zip file from NORDIC sessions
     nordic_volumes = central.select(f"/projects/{project_id}/experiments/{exp_id}/resources/NORDIC_VOLUMES/files").get("")
     logger.info(f"Found {len(nordic_volumes)} 'NORDIC_VOLUMES' for this session")
     for nv in nordic_volumes:
         zip_path = session_dicom_dir / nv._uri.split("/")[-1]
-        logger.info(f"Downloading {zip_path.name}...")
-        nv.get(zip_path)
+        if not __digests_identical(zip_path, nv):
+            logger.info(f"Downloading {zip_path.name}...")
+            nv.get(zip_path)
         unzip_path = zip_path.parent / zip_path.stem
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             logger.info(f"Unzipping to {unzip_path}...")
