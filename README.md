@@ -1,17 +1,9 @@
-# Dev installation
+# Installation
 
-Ensure `uv` is installed:
+We recommend installing cnda-dl with (pipx)[https://github.com/pypa/pipx], which ensures that the cnda-dl binary is installed in an isolated environment. Installation instructions can be found (here)[https://github.com/pypa/pipx?tab=readme-ov-file#install-pipx].
 
-```
-which uv
-```
-
-If not, this can be installed following instructions [here](https://docs.astral.sh/uv/getting-started/installation/).
-
-Then run:
+With `pipx` installed:
 
 ```
-git clone https://github.com/washu-ocean/cnda-dl.git
-cd cnda-dl
-uv sync
+pip install cnda_dl
 ```
