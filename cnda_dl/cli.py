@@ -318,7 +318,7 @@ def dat_dcm_to_nifti(session: str,
 def main():
     parser = argparse.ArgumentParser(
         prog="cnda-dl",
-        description="download cnda data directly to wallace",
+        description="A command-line utility for downloading fMRI data from CNDA",
     )
     parser.add_argument('session_list',
                         nargs="+",
