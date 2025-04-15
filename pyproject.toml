@@ -23,7 +23,7 @@ dependencies = [
     "pyxnat>=1.6.2",
 ]
 name = "cnda_dl"
-version = "1.0.0"
+version = "1.0.1"
 description = "A command line utility for downloading fMRI data from CNDA"
 readme = "README.md"
 
