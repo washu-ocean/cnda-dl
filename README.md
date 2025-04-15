@@ -5,5 +5,5 @@ We recommend installing cnda-dl with [pipx](https://github.com/pypa/pipx), which
 With `pipx` installed:
 
 ```
-pip install cnda_dl
+pipx install cnda_dl
 ```
