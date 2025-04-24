@@ -49,6 +49,91 @@ async def run(cmd):
         print(f'[stdout]\n{stdout.decode()}')
     if stderr:
         print(f'[stderr]\n{stderr.decode()}')
+    return proc.returncode
+
+
+async def map_dats(session: str,
+                   dicom_dir: Path,
+                   session_dir: Path,
+                   dat_dir: Path,
+                   xml_path: Path,
+                   args: Namespace):
+    nifti_dir = dicom_dir / f"{session}_nii"
+    unconverted_series, error_series = set(), set()
+    lock = asyncio.Lock()
+    if shutil.which('dcmdat2niix') is not None:
+        nifti_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nifti_dir}")
+    else:
+        logger.warning("dcmdat2niix not installed or has not been added to the PATH. Cannot convert data files into NIFTI")
+        return
+
+    downloaded_scans = sorted([p.name.split("/")[-1] for p in session_dir.glob("*")
+                               if (p / "DICOM").exists()])
+    # create a map of downloaded scan IDs to UIDs to later match with the UIDs in the .dat files
+    xml_scans = get_xml_scans(xml_path)
+    uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans if s.get("ID") in downloaded_scans}  # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
+    dat_files = list(dat_dir.glob("*.dat"))
+    uid_to_dats = {uid: [d for d in dat_files if uid in d.name] for uid in uid_to_id.keys()}
+
+    async def _movedat(dat_path: Path, series_path: Path):
+        shutil.move(dat_path.resolve(), series_path.resolve())
+
+    async def _run_dcmdat2niix(uid: str,
+                               dat_paths: list[Path],
+                               lock: asyncio.Lock):
+        series_id = uid_to_id[uid]
+        series_path = session_dir / series_id / "DICOM"
+        if len(dat_paths) == 0:
+            dat_paths = list(series_path.glob("*.dat"))
+        await asyncio.gather(
+            *[_movedat(dat_path, series_path) for dat_path in dat_paths]
+        )
+        dcms = list(series_path.glob("*.dcm"))
+        logger.info(f"length of dat_paths: {len(dat_paths)}")
+        logger.info(f"length of dcms: {len(dcms)}")
+        if (len(dat_paths) != 0) and (len(dat_paths) != len(dcms)):
+            logger.warning(f"WARNING: number of .dat and .dcm files mismatched for series {series_id} with UID {uid}.")
+            logger.warning("This mismatch may indicate that one of your runs has ended early")
+            if args.skip_short_runs:
+                logger.warning("skipping running dcmdat2niix \n")
+                async with lock:
+                    unconverted_series.add(series_id)
+                return
+            elif (len(dcms) == len(dat_paths) + 1) and len(dcms) > 1:
+                logger.info("Attempting to remove the extra dcm file, and convert the remaing data")
+                last_dcm = glob(f"{series_path}/*-{len(dcms)}-*.dcm")
+                if len(last_dcm) == 1:
+                    logger.info(f"Removing the mismatched dicom: {last_dcm[0]}")
+                    os.remove(last_dcm[0])
+                else:
+                    logger.warning("Could not find the mismatched dicom")
+        logger.info(f"Running dcmdat2niix on series {series_id}...")
+        retcode = await run(f"dcmdat2niix -ba n -z o -w 1 -o {nifti_dir} {series_path}")
+        async with lock:
+            if retcode == 0:
+                logger.info(f"dcmdat2niix complete for series {series_id} \n")
+            else:
+                logger.error(f"dcmdat2niix ended with a nonzero exit code for series {series_id} \n")
+                error_series.add(series_id)
+
+    await asyncio.gather(
+        *[_run_dcmdat2niix(uid, dat_paths, lock) for uid, dat_paths in uid_to_dats.items()]
+    )
+    if len(unconverted_series) > 0:
+        logger.warning(f"""
+        The following series for session:{session} were
+        not converted to NIFTI beause the '--skip_short_runs'
+        option was selected
+        {unconverted_series}\n""")
+    if len(error_series) > 0:
+        logger.warning(f"""
+        The following series for session:{session} encountered
+        an error while being converted to NIFTI. This can be due
+        to corrupted dat files (.dat files with zero or very little
+        data) or if they are Physiolog acquisitions. Check these
+        series for possible causes.
+        {error_series}\n""")
 
 
 def handle_dir_creation(dir_path: Path):
@@ -108,7 +193,6 @@ def retrieve_experiment(central: Interface,
 
 def get_xml_scans(xml_file: Path,
                   quality_pair: bool = False) -> dict:
-
     xml_tree = et.parse(xml_file)
     prefix = "{" + str(xml_tree.getroot()).split("{")[-1].split("}")[0] + "}"
     scan_xml_entries = xml_tree.getroot().find(
@@ -135,8 +219,9 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
                                   quality_pair=True)
 
     # retrieve the list of scans for this session
-    scans = central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/*/").get()
-    scans.sort()
+    scans = sorted(
+        central.array.mrscans(experiment_id=exp_id).get('xnat:mrscandata/id')
+    )
     logger.info(f"Found {len(scans)} scans for this session")
 
     # truncate the scan list if a starting point was given
@@ -412,11 +497,11 @@ def main():
     setup_main_log(log_path)
 
     # set up data paths
-    xml_path = args.xml_dir if args.xml_dir else args.dicom_dir
+    xml_dir = args.xml_dir if args.xml_dir else args.dicom_dir
     if not args.dicom_dir.is_dir():
         handle_dir_creation(args.dicom_dir)
-    if not xml_path.is_dir():
-        handle_dir_creation(xml_path)
+    if not xml_dir.is_dir():
+        handle_dir_creation(xml_dir)
 
     # set up CNDA connection
     central = None
@@ -425,7 +510,7 @@ def main():
 
     # main loop
     for session in args.session_list:
-        xml_file_path = xml_path / f"{session}.xml"
+        xml_file_path = xml_dir / f"{session}.xml"
         session_dicom_dir = args.dicom_dir / session
 
         # if only mapping is needed
@@ -501,6 +586,26 @@ def main():
                 continue
 
     logger.info("\n...Downloads Complete")
+
+
+async def session_workflow(session: str,
+                           central: Interface,
+                           xml_dir: Path,
+                           dicom_dir: Path,
+                           args: Namespace):
+    xml_path = xml_dir / f"{session}.xml"
+    session_dir = dicom_dir / session
+    if args.map_dats:
+        await map_dats(session, dicom_dir, args)
+        return
+    logger.info(f"Starting download of session {session}")
+    exp = retrieve_experiment(central, session, args.experiment_id, args.project_id)
+    if len(exp) != 1:
+        raise RuntimeError(f"ERROR: CNDA query returned JsonTable object of length {len(exp)}, meaning there were {'no' if len(exp) == 0 else 'multiple'} results found with the given search parameters.")
+    download_xml(central,
+                 subject_id=exp["xnat:mrsessiondata/subject_id"],
+                 project_id=exp["project"],
+                 file_path=xml_path)
 
 
 if __name__ == "__main__":
