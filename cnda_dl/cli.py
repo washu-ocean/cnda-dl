@@ -36,6 +36,21 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger()
 
 
+async def run(cmd):
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE)
+
+    stdout, stderr = await proc.communicate()
+
+    print(f'[{cmd!r} exited with {proc.returncode}]')
+    if stdout:
+        print(f'[stdout]\n{stdout.decode()}')
+    if stderr:
+        print(f'[stderr]\n{stderr.decode()}')
+
+
 def handle_dir_creation(dir_path: Path):
     '''
     Creates (or doesn't create) directories specified in the arguments, if any are still needed.
