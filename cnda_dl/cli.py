@@ -7,12 +7,13 @@ Authors:
     Ramone Agard (rhagard@wustl.edu)
 '''
 
-from glob import glob
 from matplotlib.ticker import EngFormatter
 from pathlib import Path
 from pyxnat import Interface
 import pyxnat
-import argparse
+
+from glob import glob
+from argparse import ArgumentParser, Namespace
 import logging
 import os
 import progressbar
@@ -24,6 +25,7 @@ import sys
 import xml.etree.ElementTree as et
 import zipfile
 import datetime
+import asyncio
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -315,8 +317,14 @@ def dat_dcm_to_nifti(session: str,
         {error_series}\n""")
 
 
-def main():
-    parser = argparse.ArgumentParser(
+def parse_args() -> tuple[Namespace, Path]:
+    '''
+    Parse command line arguments.
+
+    :return: the args namespace and path to log file.
+    :rtype: tuple[Namespace, Path]
+    '''
+    parser = ArgumentParser(
         prog="cnda-dl",
         description="A command-line utility for downloading fMRI data from CNDA",
     )
@@ -327,7 +335,8 @@ def main():
                         help="Path to the directory the dicom files should be downloaded to.",
                         required=True)
     parser.add_argument("-x", "--xml_dir", type=Path,
-                        help="Path to the directory the session xml file should be downloaded to. If not specified, defaults to path stored in -d.")
+                        help="Path to the directory the session xml file should be downloaded to. If not specified, defaults to path stored in -d.",
+                        default=None)
     parser.add_argument("-e", "--experiment_id",
                         help="Query by CNDA experiment identifier (default is to query by experiment 'label', which may be ambiguous)",
                         action='store_true')
@@ -369,8 +378,10 @@ def main():
 
     if args.map_dats and not args.map_dats.is_dir():
         parser.error(f"'--map_dats' directory does not exist: {args.map_dats}")
+    return (args, log_path)
 
-    # set up file logging
+
+def setup_main_log(log_path: Path):
     file_handler = logging.FileHandler(log_path)
     file_handler.setFormatter(logging.Formatter(default_log_format))
     logger.addHandler(file_handler)
@@ -379,16 +390,16 @@ def main():
     logger.info("Starting cnda-dl...")
     logger.info(f"Log will be stored at {log_path}")
 
-    # set up data paths
-    session_list = args.session_list
-    dicom_path = args.dicom_dir
-    if hasattr(args, 'xml_dir') and args.xml_dir is not None:
-        xml_path = args.xml_dir
-    else:
-        xml_path = dicom_path
 
-    if not dicom_path.is_dir():
-        handle_dir_creation(dicom_path)
+def main():
+    args, log_path = parse_args()
+    # set up file logging
+    setup_main_log(log_path)
+
+    # set up data paths
+    xml_path = args.xml_dir if args.xml_dir else args.dicom_dir
+    if not args.dicom_dir.is_dir():
+        handle_dir_creation(args.dicom_dir)
     if not xml_path.is_dir():
         handle_dir_creation(xml_path)
 
@@ -398,14 +409,14 @@ def main():
         central = Interface(server="https://cnda.wustl.edu/")
 
     # main loop
-    for session in session_list:
+    for session in args.session_list:
         xml_file_path = xml_path / f"{session}.xml"
-        session_dicom_dir = dicom_path / session
+        session_dicom_dir = args.dicom_dir / session
 
         # if only mapping is needed
         if args.map_dats:
             # map the .dat files to the correct scans and convert the files to NIFTI
-            nifti_path = dicom_path / f"{session}_nii"
+            nifti_path = args.dicom_dir / f"{session}_nii"
             try:
                 dat_dcm_to_nifti(session=session,
                                  dat_directory=args.map_dats,
@@ -462,7 +473,7 @@ def main():
                                                        central=central,
                                                        session_experiment=exp,
                                                        session_dicom_dir=session_dicom_dir)
-                nifti_path = dicom_path / f"{session}_nii"
+                nifti_path = args.dicom_dir / f"{session}_nii"
                 for nordic_dat_path in nordic_dat_dirs:
                     dat_dcm_to_nifti(session=session,
                                      dat_directory=nordic_dat_path,
