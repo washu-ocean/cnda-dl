@@ -287,7 +287,7 @@ def dat_dcm_to_nifti(session: str,
 
         # run the dcmdat2niix subprocess
         logger.info(f"Running dcmdat2niix on series {series_id}...")
-        dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba n -z o -w 1 -o {nifti_path} {series_path}")
+        dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba y -z o -w 1 -o {nifti_path} {series_path}")
         with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
             while p.poll() is None:
                 for line in p.stdout:
