@@ -11,6 +11,7 @@ from glob import glob
 from matplotlib.ticker import EngFormatter
 from pathlib import Path
 from pyxnat import Interface
+import concurrent.futures
 import pyxnat
 import argparse
 import logging
@@ -24,6 +25,8 @@ import sys
 import xml.etree.ElementTree as et
 import zipfile
 import datetime
+
+CONNECTION_POOL_SIZE = 10
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -109,7 +112,6 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
                                xml_file_path: Path,
                                scan_number_start: str = None,
                                skip_unusable: bool = False):
-
     project_id = session_experiment["project"]
     exp_id = session_experiment['ID']
 
@@ -136,9 +138,14 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
 
     # Get total number of files
     total_file_count, cur_file_count = 0, 0
-    for s in scans:
-        files = central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/{s}/resources/files").get("")
-        total_file_count += len(files)
+
+    def _count_files_in_scan(scan: str) -> int:
+        return len(
+            central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/{scan}/resources/files").get("")
+        )
+    with concurrent.futures.ThreadPoolExecutor(max_workers=CONNECTION_POOL_SIZE) as executor:
+        future = executor.map(_count_files_in_scan, scans)
+        total_file_count = sum(future)
     logger.info(f"Total number of files: {total_file_count}")
 
     # So log message does not interfere with format of the progress bar
