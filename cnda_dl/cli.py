@@ -137,58 +137,71 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
         logger.info(f"The following scans were marked 'unusable' and will not be downloaded: \n\t {[s for s,q in quality_pairs.items() if q=='unusable']}")
 
     # Get total number of files
-    total_file_count, cur_file_count = 0, 0
+    def _get_file_objects_in_scan(scan: str) -> dict:
+        file_objects = central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/{scan}/resources/files").get("")
+        return {file_obj: scan for file_obj in file_objects}
 
-    def _count_files_in_scan(scan: str) -> int:
-        return len(
-            central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/{scan}/resources/files").get("")
-        )
+    all_scan_file_objects = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=CONNECTION_POOL_SIZE) as executor:
-        future = executor.map(_count_files_in_scan, scans)
-        total_file_count = sum(future)
+        future_dicts = executor.map(_get_file_objects_in_scan, scans)
+        for future_dict in future_dicts:
+            all_scan_file_objects.update(future_dict)
+
+    total_file_count = len(all_scan_file_objects.keys())
     logger.info(f"Total number of files: {total_file_count}")
+
+    # Make DICOM directories for each series number
+    for scan in scans:
+        series_path = session_dicom_dir / scan / "DICOM"
+        series_path.mkdir(parents=True, exist_ok=True)
 
     # So log message does not interfere with format of the progress bar
     logger.removeHandler(sout_handler)
-    downloaded_files = set()
     zero_size_files = set()
     fmt = EngFormatter('B')
 
+    # Function assigned to threads
+    def _download_session_file(f, scan):
+        file_attrs = {}
+        series_path = session_dicom_dir / scan / "DICOM"
+        assert series_path.is_dir()
+        file_attrs = {
+            "name": series_path / f._uri.split("/")[-1],
+            "size": fmt(int(f.size())) if f.size() else fmt(0),
+            "isempty": True if not f.size() else False,
+            "isdownloaded": False
+        }
+        if file_attrs["isempty"] and file_attrs["name"].exists():
+            return file_attrs
+        f.get(file_attrs["name"])
+        file_attrs["isdownloaded"] = True
+        return file_attrs
+
     # Download the session files
-    with progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar:
-        for s in scans:
-            logger.info(f"  Downloading scan {s}...")
-            print(f"Downloading scan {s}...")
-            series_path = session_dicom_dir / s / "DICOM"
-            series_path.mkdir(parents=True, exist_ok=True)
-            files = central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/{s}/resources/files").get("")
-            for f in files:
+    with (
+        progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar,
+        concurrent.futures.ThreadPoolExecutor(max_workers=CONNECTION_POOL_SIZE) as executor
+    ):
+        cur_file_count = 0
+        zero_size_files = []
+        futures = [executor.submit(_download_session_file, f, scan) for (f, scan) in all_scan_file_objects.items()]
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                file_attrs = future.result()
                 cur_file_count += 1
-                add_file = True
-                file_name = series_path / f._uri.split("/")[-1]
-                file_size = fmt(int(f.size())) if f.size() else fmt(0)
-                file_info = f"File {f.attributes()['Name']}, {file_size} ({cur_file_count} out of {total_file_count})"
-                print("\t" + file_info)
-                logger.info("\t" + file_info)
-                if not f.size():
-                    msg = "\t-- File is empty"
-                    if file_name in downloaded_files:
-                        msg += " -- another copy was already downloaded, skipping download of this file"
-                        add_file = False
-                    else:
-                        zero_size_files.add(file_name)
-                    print(msg)
-                    logger.info(msg)
-                elif file_name in zero_size_files:
-                    zero_size_files.remove(file_name)
-                if add_file:
-                    f.get(file_name)
-                    downloaded_files.add(file_name)
                 bar.update(cur_file_count)
+                if file_attrs['isempty']:
+                    zero_size_files.append(file_attrs)
+                if file_attrs['isdownloaded']:
+                    logger.info(msg := f"\tDownloaded file {file_attrs['name']}, {file_attrs['size']} ({cur_file_count} out of {total_file_count})")
+                    print(msg)
+            except Exception as exc:
+                print(f"Task ended with an exception {exc}")
+
     logger.addHandler(sout_handler)
-    logger.info("Dicom download complete \n")
+    logger.info("DICOM download complete!")
     if len(zero_size_files) > 0:
-        logger.warning(f"The following downloaded files contained no data:\n{[f.label() for f in zero_size_files]} \nCheck these files for unintended missing data!")
+        logger.warning(msg := f"The following downloaded files contained no data:\n{[file_attrs['name'] for file_attrs in zero_size_files]} \nCheck these files for unintended missing data!")
 
 
 def download_nordic_zips(session: str,
