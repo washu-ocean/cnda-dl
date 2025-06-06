@@ -6,7 +6,7 @@ Authors:
     Joey Scanga (scanga@wustl.edu)
     Ramone Agard (rhagard@wustl.edu)
 '''
-
+from .formatters import ParensOnRightFormatter1, Colors
 from glob import glob
 from matplotlib.ticker import EngFormatter
 from pathlib import Path
@@ -30,6 +30,7 @@ CONNECTION_POOL_SIZE = 10
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
+sout_handler.setFormatter(ParensOnRightFormatter1())
 logging.basicConfig(level=logging.INFO,
                     handlers=[sout_handler],
                     format=default_log_format)
@@ -52,16 +53,16 @@ def handle_dir_creation(dir_path: Path):
         ans = ans.lower()
 
         if len(ans) != 1 or ans not in 'yn':
-            logger.info("Invalid response.")
+            logger.info("Invalid response")
         elif ans == 'y':
             dir_path.mkdir(parents=True)
             prompt_chosen = True
-            logger.info(f"new directory created at {dir_path}.")
+            logger.info(f"new directory created at {dir_path}")
         elif ans == 'n':
-            logger.info("Chose to not create a new directory. Aborting...")
+            logger.info("Chose to not create a new directory Aborting")
             sys.exit(0)
         else:
-            logger.info("Invalid response.")
+            logger.info("Invalid response")
 
 
 def download_xml(central: Interface,
@@ -69,7 +70,7 @@ def download_xml(central: Interface,
                  project_id: str,
                  file_path: Path):
 
-    logger.info("Downloading session xml...")
+    logger.info("Downloading session xml")
     sub = central.select(f"/projects/{project_id}/subjects/{subject_id}")
     with open(file_path, "w") as f:
         f.write(sub.get().decode())
@@ -193,7 +194,13 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
                 if file_attrs['isempty']:
                     zero_size_files.append(file_attrs)
                 if file_attrs['isdownloaded']:
-                    logger.info(msg := f"\tDownloaded file {file_attrs['name']}, {file_attrs['size']} ({cur_file_count} out of {total_file_count})")
+                    msg = f"Downloaded file {file_attrs['name']}, {file_attrs['size']} ({cur_file_count} out of {total_file_count})"
+                    if len(msg) > (tsize := os.get_terminal_size()[0]) - tsize // 5:
+                        msg = msg[:tsize // 2 - 4] + f"{Colors.DARK_GREY}.......{Colors.RESET}" + msg[tsize // 2 + tsize // 5:]
+                    # if len(msg) > (tsize := os.get_terminal_size()[0]) and tsize % 2 == 1:
+                    #     msg = msg[:tsize // 2 - 4] + f"{Colors.DARK_GREY}.......{Colors.RESET}" + msg[tsize // 2 + tsize // 5:]
+                    logger.info(msg)
+                    # logger.info(f"\tDownloaded file {file_attrs['name']}, {file_attrs['size']} ({cur_file_count} out of {total_file_count})")
                     print(msg)
             except Exception as exc:
                 print(f"Task ended with an exception {exc}")
@@ -226,11 +233,11 @@ def download_nordic_zips(session: str,
     for nv in nordic_volumes:
         zip_path = session_dicom_dir / nv._uri.split("/")[-1]
         if not _digests_identical(zip_path, nv):
-            logger.info(f"Downloading {zip_path.name}...")
+            logger.info(f"Downloading {zip_path.name}")
             nv.get(zip_path)
         unzip_path = zip_path.parent / zip_path.stem
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            logger.info(f"Unzipping to {unzip_path}...")
+            logger.info(f"Unzipping to {unzip_path}")
             zip_ref.extractall(unzip_path)
         dat_dir_list.append(unzip_path)
 
@@ -306,7 +313,7 @@ def dat_dcm_to_nifti(session: str,
                     logger.warning("Could not find the mismatched dicom")
 
         # run the dcmdat2niix subprocess
-        logger.info(f"Running dcmdat2niix on series {series_id}...")
+        logger.info(f"Running dcmdat2niix on series {series_id}")
         dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba y -z o -w 1 -o {nifti_path} {series_path}")
         with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
             while p.poll() is None:
@@ -396,7 +403,7 @@ def main():
     logger.addHandler(file_handler)
     logger.addHandler(sout_handler)
 
-    logger.info("Starting cnda-dl...")
+    logger.info("Starting cnda-dl")
     logger.info(f"Log will be stored at {log_path}")
 
     # set up data paths
@@ -438,7 +445,7 @@ def main():
             continue
 
         # download the experiment data
-        logger.info(f"Starting download of session {session}...")
+        logger.info(f"Starting download of session {session}")
 
         # try to retrieve the experiment corresponding to this session
         exp = None
@@ -495,7 +502,7 @@ def main():
             logger.exception(f"Error downloading 'NORDIC_VOLUMES' and converting to NIFTI for session: {session}")
             continue
 
-    logger.info("\n...Downloads Complete")
+    logger.info("\nDownloads Complete")
 
 
 if __name__ == "__main__":
