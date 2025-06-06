@@ -474,25 +474,26 @@ def main():
                 logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
                 continue
 
-        # if we are not skipping the NORDIC files
-        if not args.ignore_nordic_volumes:
-            # try to download NORDIC related files and convert raw data to NIFTI
-            try:
-                nordic_dat_dirs = download_nordic_zips(session=session,
-                                                       central=central,
-                                                       session_experiment=exp,
-                                                       session_dicom_dir=session_dicom_dir)
-                nifti_path = dicom_path / f"{session}_nii"
-                for nordic_dat_path in nordic_dat_dirs:
-                    dat_dcm_to_nifti(session=session,
-                                     dat_directory=nordic_dat_path,
-                                     xml_file_path=xml_file_path,
-                                     session_dicom_dir=session_dicom_dir,
-                                     nifti_path=nifti_path,
-                                     skip_short_runs=args.skip_short_runs)
-            except Exception:
-                logger.exception(f"Error downloading 'NORDIC_VOLUMES' and converting to NIFTI for session: {session}")
-                continue
+        # exit if skipping the NORDIC files
+        if args.ignore_nordic_volumes:
+            continue
+        # try to download NORDIC related files and convert raw data to NIFTI
+        try:
+            nordic_dat_dirs = download_nordic_zips(session=session,
+                                                   central=central,
+                                                   session_experiment=exp,
+                                                   session_dicom_dir=session_dicom_dir)
+            nifti_path = dicom_path / f"{session}_nii"
+            for nordic_dat_path in nordic_dat_dirs:
+                dat_dcm_to_nifti(session=session,
+                                 dat_directory=nordic_dat_path,
+                                 xml_file_path=xml_file_path,
+                                 session_dicom_dir=session_dicom_dir,
+                                 nifti_path=nifti_path,
+                                 skip_short_runs=args.skip_short_runs)
+        except Exception:
+            logger.exception(f"Error downloading 'NORDIC_VOLUMES' and converting to NIFTI for session: {session}")
+            continue
 
     logger.info("\n...Downloads Complete")
 
