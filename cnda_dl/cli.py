@@ -426,6 +426,7 @@ def main():
 
     # main loop
     for session in session_list:
+        download_success = False
         xml_file_path = xml_path / f"{session}.xml"
         session_dicom_dir = dicom_path / session
 
@@ -442,6 +443,7 @@ def main():
                                  skip_short_runs=args.skip_short_runs)
             except Exception:
                 logger.exception(f"Error moving the .dat files to the appropriate scan directories and converting to NIFTI for session: {session}")
+                download_success = False
             continue
 
         # download the experiment data
@@ -461,6 +463,26 @@ def main():
 
         except Exception:
             logger.exception("Error retrieving the experiment from the given parameters. Double check your inputs or enter more specific parameters.")
+            download_success = False
+            continue
+
+        # download the experiment data
+        logger.info(f"Starting download of session {session}")
+
+        # try to retrieve the experiment corresponding to this session
+        exp = None
+        try:
+            exp = retrieve_experiment(central=central,
+                                      session=session,
+                                      experiment_id=args.experiment_id,
+                                      project_id=args.project_id)
+            if len(exp) == 0:
+                raise RuntimeError("ERROR: CNDA query returned JsonTable object of length 0, meaning there were no results found with the given search parameters.")
+            elif len(exp) > 1:
+                raise RuntimeError("ERROR: CNDA query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
+
+        except Exception:
+
             continue
 
         # download the xml for this session
@@ -479,6 +501,7 @@ def main():
                                            skip_unusable=args.skip_unusable)
             except Exception:
                 logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
+                download_success = False
                 continue
 
         # exit if skipping the NORDIC files
@@ -500,9 +523,11 @@ def main():
                                  skip_short_runs=args.skip_short_runs)
         except Exception:
             logger.exception(f"Error downloading 'NORDIC_VOLUMES' and converting to NIFTI for session: {session}")
+            download_success = False
             continue
 
-    logger.info("\nDownloads Complete")
+    if download_success:
+        logger.info("\nDownloads Complete")
 
 
 if __name__ == "__main__":
