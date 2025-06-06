@@ -212,8 +212,8 @@ def download_nordic_zips(session: str,
     project_id = session_experiment["project"]
     exp_id = session_experiment['ID']
 
-    def __digests_identical(zip_path: Path,
-                            cnda_file: pyxnat.core.resources.File):
+    def _digests_identical(zip_path: Path,
+                           cnda_file: pyxnat.core.resources.File):
         if zip_path.is_file():  # Compare digests of zip on CNDA to see if we need to redownload
             with zip_path.open("rb") as f:
                 if hashlib.md5(f.read()).hexdigest() == cnda_file.attributes()['digest']:  # digests match
@@ -225,7 +225,7 @@ def download_nordic_zips(session: str,
     logger.info(f"Found {len(nordic_volumes)} 'NORDIC_VOLUMES' for this session")
     for nv in nordic_volumes:
         zip_path = session_dicom_dir / nv._uri.split("/")[-1]
-        if not __digests_identical(zip_path, nv):
+        if not _digests_identical(zip_path, nv):
             logger.info(f"Downloading {zip_path.name}...")
             nv.get(zip_path)
         unzip_path = zip_path.parent / zip_path.stem
