@@ -13,10 +13,15 @@ from pathlib import Path
 from pyxnat import Interface
 import concurrent.futures
 import pyxnat
+import atexit
+import re
+import time
 import argparse
 import logging
 import os
 import progressbar
+from progressbar import ProgressBar
+from progressbar.utils import scale_1024
 import shlex
 import shutil
 import hashlib
@@ -27,6 +32,7 @@ import zipfile
 import datetime
 
 CONNECTION_POOL_SIZE = 10
+fmt = EngFormatter('B')
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -107,6 +113,110 @@ def get_xml_scans(xml_file: Path,
     return scan_xml_entries
 
 
+def get_scan_types(xml_path):
+    # Get unique scan types to include in POST req
+    with open(xml_path, "r") as f:
+        xml_text = f.read()
+    return list(set(
+        re.findall(
+            r'ID="\d+"\s+type="([a-zA-Z0-9\-_]+)"',
+            xml_text
+        )
+    ))
+
+
+def get_resources(xml_path):
+    # Get "additional resources" that appear on CNDA for the session
+    # (usually NORDIC_VOLUMES)
+    with open(xml_path, "r") as f:
+        xml_text = f.read()
+    return list(set(
+        re.findall(
+            r'resource label="([a-zA-Z0-9\-_]+)"',
+            xml_text
+        )
+    ))
+
+
+def download_experiment_zip(central: pyxnat.Interface,
+                            exp: pyxnat.jsonutil.JsonTable,
+                            session_dicom_dir: Path,
+                            xml_file_path: Path,
+                            keep_zip: bool = False):
+    '''
+    Creates (or doesn't create) directories specified in the arguments, if any are still needed.
+
+    :param central: CNDA connection object
+    :type central: pyxnat.Interface
+    :param exp: object containing experiment information
+    :type exp: pyxnat.jsonutil.JsonTable
+    :param session_dicom_dir: Path to session-specific directory where DICOMs should be downloaded
+    :type session_dicom_dir: pathlib.Path
+    :param xml_file_path: Path to experiment XML
+    :type xml_file_path: pathlib.Path
+    :param keep_zip: Will not delete downloaded zip file after unzipping
+    :type keep_zip: bool
+    '''
+    sub_obj = central.select(f"/project/{exp['project']}/subjects/{exp['xnat:mrsessiondata/subject_id']}")
+    exp_obj = central.select(f"/project/{exp['project']}/subjects/{exp['xnat:mrsessiondata/subject_id']}/experiments/{exp['ID']}")
+    # Step 1: make POST request to prepare .zip download
+    res1 = central.post(
+        "/xapi/archive/downloadwithsize",
+        json={
+            "sessions": [f"{exp['project']}:{sub_obj.label()}:{exp_obj.label()}:{exp['ID']}"],
+            "projectIds": [exp['project']],
+            "scan_formats": ["DICOM"],
+            "scan_types": get_scan_types(xml_file_path),
+            "resources": get_resources(xml_file_path),
+            "options": ["simplified"]
+        }
+    )
+    # Step 2: make GET request with created ID from POST
+    if session_dicom_dir.is_dir():
+        shutil.rmtree(session_dicom_dir)
+    session_dicom_dir.mkdir()
+    cur_bytes, total_bytes = 0, int(res1.json()["size"])
+
+    def _build_progress_bar():
+        widgets = [
+            progressbar.DataSize(), '/', progressbar.DataSize(variable='max_value'),
+            progressbar.Percentage(),
+            ' ',
+            progressbar.Bar(marker=progressbar.RotatingMarker()),
+            ' ',
+            progressbar.ETA(),
+            ' ',
+            progressbar.FileTransferSpeed()
+        ]
+        return ProgressBar(
+            max_value=total_bytes,
+            widgets=widgets
+        )
+    # breakpoint()
+    with (
+        central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", stream=True) as res2,
+        open(zip_path := (session_dicom_dir / f"{res1.json()['id']}.zip"), "w+b") as f,
+        _build_progress_bar() as bar
+    ):
+        start, end = time.time(), time.time()
+        res2.raise_for_status()
+        for chunk in res2.iter_content(chunk_size=(chunk_size := 8192)):
+            if chunk:
+                f.write(chunk)
+                cur_bytes += chunk_size
+                end = time.time()
+                if end - start > 1:
+                    start, end = time.time(), time.time()
+                    # print(f"downloaded {fmt(cur_bytes)} out of {fmt_total_bytes}")
+                    bar.update(cur_bytes)
+        unzip_path = zip_path.parent
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            logger.info(f"Unzipping to {unzip_path}")
+            zip_ref.extractall(unzip_path)
+        if not keep_zip:
+            zip_path.unlink()
+
+
 def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
                                central: Interface,
                                session_dicom_dir: Path,
@@ -135,7 +245,7 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
     # remove the unusable scans from the list if skipping is requested
     if skip_unusable:
         scans = [s for s in scans if quality_pairs[s] != "unusable"]
-        logger.info(f"The following scans were marked 'unusable' and will not be downloaded: \n\t {[s for s,q in quality_pairs.items() if q=='unusable']}")
+        logger.info(f"The following scans were marked 'unusable' and will not be downloaded: \n\t {[s for s,q in quality_pairs.items() if q == 'unusable']}")
 
     # Get total number of files
     def _get_file_objects_in_scan(scan: str) -> dict:
@@ -159,7 +269,6 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
     # So log message does not interfere with format of the progress bar
     logger.removeHandler(sout_handler)
     zero_size_files = set()
-    fmt = EngFormatter('B')
 
     # Function assigned to threads
     def _download_session_file(f, scan):
@@ -180,7 +289,7 @@ def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
 
     # Download the session files
     with (
-        progressbar.ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar,
+        ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar,
         concurrent.futures.ThreadPoolExecutor(max_workers=CONNECTION_POOL_SIZE) as executor
     ):
         cur_file_count = 0
@@ -380,6 +489,9 @@ def main():
     parser.add_argument("--dats_only",
                         help="Skip downloading DICOMs, only try to pull .dat files",
                         action='store_true')
+    parser.add_argument("--keep_zip",
+                        help="Option to keep downloaded .zip file after unzipping",
+                        action='store_true')
     args = parser.parse_args()
 
     # validate argument inputs
@@ -423,6 +535,7 @@ def main():
     central = None
     if not args.map_dats:
         central = Interface(server="https://cnda.wustl.edu/")
+        atexit.register(central.disconnect)
 
     # main loop
     for session in session_list:
@@ -493,34 +606,34 @@ def main():
         # try to download the files for this experiment
         if not args.dats_only:
             try:
-                download_experiment_dicoms(session_experiment=exp,
-                                           central=central,
-                                           session_dicom_dir=session_dicom_dir,
-                                           xml_file_path=xml_file_path,
-                                           scan_number_start=args.scan_number,
-                                           skip_unusable=args.skip_unusable)
+                download_experiment_zip(central=central,
+                                        exp=exp,
+                                        session_dicom_dir=session_dicom_dir,
+                                        xml_file_path=xml_file_path,
+                                        keep_zip=args.keep_zip)
             except Exception:
                 logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
                 download_success = False
                 continue
 
         # exit if skipping the NORDIC files
-        if args.ignore_nordic_volumes:
+        nordic_dat_dir = session_dicom_dir / "NORDIC_VOLUMES"
+        if args.ignore_nordic_volumes or not nordic_dat_dir.is_dir():
             continue
         # try to download NORDIC related files and convert raw data to NIFTI
         try:
-            nordic_dat_dirs = download_nordic_zips(session=session,
-                                                   central=central,
-                                                   session_experiment=exp,
-                                                   session_dicom_dir=session_dicom_dir)
+            # nordic_dat_dirs = download_nordic_zips(session=session,
+            #                                        central=central,
+            #                                        session_experiment=exp,
+            #                                        session_dicom_dir=session_dicom_dir)
             nifti_path = dicom_path / f"{session}_nii"
-            for nordic_dat_path in nordic_dat_dirs:
-                dat_dcm_to_nifti(session=session,
-                                 dat_directory=nordic_dat_path,
-                                 xml_file_path=xml_file_path,
-                                 session_dicom_dir=session_dicom_dir,
-                                 nifti_path=nifti_path,
-                                 skip_short_runs=args.skip_short_runs)
+            # for nordic_dat_path in nordic_dat_dirs:
+            dat_dcm_to_nifti(session=session,
+                             dat_directory=nordic_dat_dir,
+                             xml_file_path=xml_file_path,
+                             session_dicom_dir=session_dicom_dir,
+                             nifti_path=nifti_path,
+                             skip_short_runs=args.skip_short_runs)
         except Exception:
             logger.exception(f"Error downloading 'NORDIC_VOLUMES' and converting to NIFTI for session: {session}")
             download_success = False
