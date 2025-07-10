@@ -27,8 +27,6 @@ import progressbar as pb
 
 from .formatters import ParensOnRightFormatter1
 
-CONNECTION_POOL_SIZE = 10
-
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
 sout_handler.setFormatter(ParensOnRightFormatter1())
