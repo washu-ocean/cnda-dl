@@ -90,7 +90,7 @@ def retrieve_experiment(central: px.Interface,
     return central.array.mrsessions(**query_params)
 
 
-def get_xml_scans(xml_file: Path,) -> dict:
+def get_xml_scans(xml_file: Path) -> dict:
     """
     Create a map of downloaded scan IDs to UIDs to later match with the UIDs in the .dat files
 
