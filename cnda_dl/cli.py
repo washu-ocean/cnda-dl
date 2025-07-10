@@ -140,7 +140,7 @@ def get_resources(xml_path):
 
 def download_experiment_zip(central: pyxnat.Interface,
                             exp: pyxnat.jsonutil.JsonTable,
-                            session_dicom_dir: Path,
+                            dicom_dir: Path,
                             xml_file_path: Path,
                             keep_zip: bool = False):
     '''
@@ -150,8 +150,8 @@ def download_experiment_zip(central: pyxnat.Interface,
     :type central: pyxnat.Interface
     :param exp: object containing experiment information
     :type exp: pyxnat.jsonutil.JsonTable
-    :param session_dicom_dir: Path to session-specific directory where DICOMs should be downloaded
-    :type session_dicom_dir: pathlib.Path
+    :param dicom_dir: Path to session-specific directory where DICOMs should be downloaded
+    :type dicom_dir: pathlib.Path
     :param xml_file_path: Path to experiment XML
     :type xml_file_path: pathlib.Path
     :param keep_zip: Will not delete downloaded zip file after unzipping
@@ -172,9 +172,9 @@ def download_experiment_zip(central: pyxnat.Interface,
         }
     )
     # Step 2: make GET request with created ID from POST
-    if session_dicom_dir.is_dir():
-        shutil.rmtree(session_dicom_dir)
-    session_dicom_dir.mkdir()
+    if dicom_dir.is_dir():
+        shutil.rmtree(dicom_dir)
+    dicom_dir.mkdir()
     cur_bytes, total_bytes = 0, int(res1.json()["size"])
 
     def _build_progress_bar():
@@ -192,10 +192,9 @@ def download_experiment_zip(central: pyxnat.Interface,
             max_value=total_bytes,
             widgets=widgets
         )
-    # breakpoint()
     with (
         central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", stream=True) as res2,
-        open(zip_path := (session_dicom_dir / f"{res1.json()['id']}.zip"), "w+b") as f,
+        open(zip_path := (dicom_dir / f"{res1.json()['id']}.zip"), "w+b") as f,
         _build_progress_bar() as bar
     ):
         start, end = time.time(), time.time()
@@ -209,12 +208,12 @@ def download_experiment_zip(central: pyxnat.Interface,
                     start, end = time.time(), time.time()
                     # print(f"downloaded {fmt(cur_bytes)} out of {fmt_total_bytes}")
                     bar.update(cur_bytes)
-        unzip_path = zip_path.parent
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            logger.info(f"Unzipping to {unzip_path}")
-            zip_ref.extractall(unzip_path)
-        if not keep_zip:
-            zip_path.unlink()
+    breakpoint()
+    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+        logger.info(f"Unzipping {zip_path}...")
+        zip_ref.extractall(dicom_dir)
+    if not keep_zip:
+        zip_path.unlink()
 
 
 def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
@@ -520,14 +519,14 @@ def main():
 
     # set up data paths
     session_list = args.session_list
-    dicom_path = args.dicom_dir
+    dicom_dir = args.dicom_dir
     if hasattr(args, 'xml_dir') and args.xml_dir is not None:
         xml_path = args.xml_dir
     else:
-        xml_path = dicom_path
+        xml_path = dicom_dir
 
-    if not dicom_path.is_dir():
-        handle_dir_creation(dicom_path)
+    if not dicom_dir.is_dir():
+        handle_dir_creation(dicom_dir)
     if not xml_path.is_dir():
         handle_dir_creation(xml_path)
 
@@ -541,12 +540,12 @@ def main():
     for session in session_list:
         download_success = False
         xml_file_path = xml_path / f"{session}.xml"
-        session_dicom_dir = dicom_path / session
+        session_dicom_dir = dicom_dir / session
 
         # if only mapping is needed
         if args.map_dats:
             # map the .dat files to the correct scans and convert the files to NIFTI
-            nifti_path = dicom_path / f"{session}_nii"
+            nifti_path = dicom_dir / f"{session}_nii"
             try:
                 dat_dcm_to_nifti(session=session,
                                  dat_directory=args.map_dats,
@@ -595,7 +594,6 @@ def main():
                 raise RuntimeError("ERROR: CNDA query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
 
         except Exception:
-
             continue
 
         # download the xml for this session
@@ -608,7 +606,7 @@ def main():
             try:
                 download_experiment_zip(central=central,
                                         exp=exp,
-                                        session_dicom_dir=session_dicom_dir,
+                                        dicom_dir=dicom_dir,
                                         xml_file_path=xml_file_path,
                                         keep_zip=args.keep_zip)
             except Exception:
@@ -626,7 +624,7 @@ def main():
             #                                        central=central,
             #                                        session_experiment=exp,
             #                                        session_dicom_dir=session_dicom_dir)
-            nifti_path = dicom_path / f"{session}_nii"
+            nifti_path = dicom_dir / f"{session}_nii"
             # for nordic_dat_path in nordic_dat_dirs:
             dat_dcm_to_nifti(session=session,
                              dat_directory=nordic_dat_dir,
