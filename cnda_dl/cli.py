@@ -94,17 +94,18 @@ def retrieve_experiment(central: px.Interface,
     return central.array.mrsessions(**query_params)
 
 
-def get_xml_scans(xml_file: Path,
-                  quality_pair: bool = False) -> dict:
+def get_xml_scans(xml_file: Path,) -> dict:
+    """
+    Create a map of downloaded scan IDs to UIDs to later match with the UIDs in the .dat files
 
+    :param xml_file: path to quality XML
+    :type xml_file: pathlib.Path
+    """
     xml_tree = et.parse(xml_file)
     prefix = "{" + str(xml_tree.getroot()).split("{")[-1].split("}")[0] + "}"
     scan_xml_entries = xml_tree.getroot().find(
         f"./{prefix}experiments/{prefix}experiment/{prefix}scans"
     )
-    if quality_pair:
-        return {s.get("ID"): s.find(f"{prefix}quality").text
-                for s in scan_xml_entries}
     return scan_xml_entries
 
 
@@ -167,6 +168,9 @@ def download_experiment_zip(central: px.Interface,
         }
     )
     # Step 2: make GET request with created ID from POST
+    if dicom_dir.is_dir():
+        shutil.rmtree(dicom_dir)
+    dicom_dir.mkdir()
     cur_bytes, total_bytes = 0, int(res1.json()["size"])
 
     def _build_progress_bar():
@@ -230,7 +234,6 @@ def dat_dcm_to_nifti(session: str,
                         if (p / "DICOM").exists()]
     downloaded_scans.sort()
 
-    # create a map of downloaded scan IDs to UIDs to later match with the UIDs in the .dat files
     xml_scans = get_xml_scans(xml_file=xml_file_path)
     # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
     uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans if s.get("ID") in downloaded_scans}
