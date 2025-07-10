@@ -21,8 +21,6 @@ import sys
 import xml.etree.ElementTree as et
 import zipfile
 import datetime
-import io
-from urllib.request import urlopen
 
 import pyxnat as px
 import progressbar as pb
