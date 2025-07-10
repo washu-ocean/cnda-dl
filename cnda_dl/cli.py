@@ -200,7 +200,6 @@ def download_experiment_zip(central: px.Interface,
                     start, end = time.time(), time.time()
                     # print(f"downloaded {fmt(cur_bytes)} out of {fmt_total_bytes}")
                     bar.update(cur_bytes)
-    breakpoint()
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         logger.info(f"Unzipping {zip_path}...")
         zip_ref.extractall(dicom_dir)
