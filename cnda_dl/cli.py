@@ -136,7 +136,7 @@ def download_experiment_zip(central: px.Interface,
                             xml_file_path: Path,
                             keep_zip: bool = False):
     '''
-    Creates (or doesn't create) directories specified in the arguments, if any are still needed.
+    Download scan data as .zip from CNDA.
 
     :param central: CNDA connection object
     :type central: pyxnat.Interface
@@ -214,7 +214,22 @@ def dat_dcm_to_nifti(session: str,
                      session_dicom_dir: Path,
                      session_nifti_dir: Path,
                      skip_short_runs: bool = False):
-    # check if the required program is on the current PATH
+    """
+    Pair .dcm/.dat files with dcmdat2niix
+
+    :param session: Session identifier
+    :type session: str
+    :param dat_directory: Directory with .dat files
+    :type dat_directory: pathlib.Path
+    :param xml_file_path: Path to session XML
+    :type xml_file_path: pathlib.Path
+    :param session_dicom_dir: Path to directory containing DICOM folders for each series
+    :type session_dicom_dir: pathlib.Path
+    :param session_nifti_dir: Path to directory containing all .dat files
+    :type session_nifti_dir: pathlib.Path
+    :param skip_short_runs: Flag which denotes we don't want to run dcmdat2niix on runs stopped short
+    :type skip_short_runs: bool
+    """
     can_convert = False
     unconverted_series = set()
     error_series = set()
@@ -322,11 +337,9 @@ def main():
                         help="Query by CNDA experiment identifier (default is to query by experiment 'label', which may be ambiguous)",
                         action='store_true')
     parser.add_argument("-p", "--project_id",
-                        help="Specify the project ID to narrow down search. Recommended if the session list is not eperiment ids.")
-    parser.add_argument("-s", "--scan_number",
-                        help="Select the scan number to start the download from (may be used when only ONE session/experiment is specified)")
-    parser.add_argument("-n", "--ignore_nordic_volumes",
-                        help="Don't download a NORDIC_VOLUMES folder from CNDA if it exists.",
+                        help="Specify the project ID to narrow down search. Recommended if the session list is not experiment ids.")
+    parser.add_argument("--skip_dcmdat2niix",
+                        help="If NORDIC_VOLUMES folder is available, don't perform dcmdat2niix pairing step",
                         action='store_true')
     parser.add_argument("--map_dats", type=Path,
                         help="""The path to a directory containting .dat files you wish to pair with DICOM files. Using this argument
@@ -334,12 +347,9 @@ def main():
                         run dcmdat2niix""")
     parser.add_argument("--log_dir", type=Path,
                         help="Points to a specified directory that will store the log file. Will not make the directory if it doesn't exist.")
-    parser.add_argument("-ssr","--skip_short_runs",
+    parser.add_argument("--skip_short_runs",
                         action="store_true",
                         help="Flag to indicate that runs stopped short should not be converted to NIFTI")
-    parser.add_argument("--skip_unusable",
-                        help="Don't download any scans marked as 'unusable' in the XML",
-                        action='store_true')
     parser.add_argument("--dats_only",
                         help="Skip downloading DICOMs, only try to pull .dat files",
                         action='store_true')
@@ -356,9 +366,6 @@ def main():
         args.log_dir = Path.home() / ".local" / "share" / "cnda-dl" / "logs"
         args.log_dir.mkdir(parents=True, exist_ok=True)
     log_path = args.log_dir / f"cnda-dl_{datetime.datetime.now().strftime('%m-%d-%y_%I:%M%p')}.log"
-
-    if args.scan_number and len(args.session_list) > 1:
-        parser.error("'--scan_number' can only be specified when there is only one session/experiment to download")
 
     if args.map_dats and not args.map_dats.is_dir():
         parser.error(f"'--map_dats' directory does not exist: {args.map_dats}")
@@ -449,7 +456,7 @@ def main():
                 continue
 
         nordic_dat_dir = session_dicom_dir / "NORDIC_VOLUMES"
-        if args.ignore_nordic_volumes or not nordic_dat_dir.is_dir():
+        if args.skip_dcmdat2niix or not nordic_dat_dir.is_dir():
             continue
         dat_dcm_to_nifti(session=session,
                          dat_directory=nordic_dat_dir,
