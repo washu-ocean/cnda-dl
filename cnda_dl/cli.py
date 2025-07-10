@@ -6,33 +6,30 @@ Authors:
     Joey Scanga (scanga@wustl.edu)
     Ramone Agard (rhagard@wustl.edu)
 '''
-from .formatters import ParensOnRightFormatter1, Colors
 from glob import glob
-from matplotlib.ticker import EngFormatter
 from pathlib import Path
-from pyxnat import Interface
-import concurrent.futures
-import pyxnat
 import atexit
 import re
 import time
 import argparse
 import logging
 import os
-import progressbar
-from progressbar import ProgressBar
-from progressbar.utils import scale_1024
 import shlex
 import shutil
-import hashlib
 import subprocess
 import sys
 import xml.etree.ElementTree as et
 import zipfile
 import datetime
+import io
+from urllib.request import urlopen
+
+import pyxnat as px
+import progressbar as pb
+
+from .formatters import ParensOnRightFormatter1
 
 CONNECTION_POOL_SIZE = 10
-fmt = EngFormatter('B')
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -71,7 +68,7 @@ def handle_dir_creation(dir_path: Path):
             logger.info("Invalid response")
 
 
-def download_xml(central: Interface,
+def download_xml(central: px.Interface,
                  subject_id: str,
                  project_id: str,
                  file_path: Path):
@@ -83,10 +80,10 @@ def download_xml(central: Interface,
     return True
 
 
-def retrieve_experiment(central: Interface,
+def retrieve_experiment(central: px.Interface,
                         session: str,
                         experiment_id: bool = False,
-                        project_id: str = None) -> pyxnat.jsonutil.JsonTable:
+                        project_id: str = None) -> px.jsonutil.JsonTable:
 
     query_params = {}
     if project_id:
@@ -138,8 +135,8 @@ def get_resources(xml_path):
     ))
 
 
-def download_experiment_zip(central: pyxnat.Interface,
-                            exp: pyxnat.jsonutil.JsonTable,
+def download_experiment_zip(central: px.Interface,
+                            exp: px.jsonutil.JsonTable,
                             dicom_dir: Path,
                             xml_file_path: Path,
                             keep_zip: bool = False):
@@ -179,16 +176,16 @@ def download_experiment_zip(central: pyxnat.Interface,
 
     def _build_progress_bar():
         widgets = [
-            progressbar.DataSize(), '/', progressbar.DataSize(variable='max_value'),
-            progressbar.Percentage(),
+            pb.DataSize(), '/', pb.DataSize(variable='max_value'),
+            pb.Percentage(),
             ' ',
-            progressbar.Bar(marker=progressbar.RotatingMarker()),
+            pb.Bar(marker=pb.RotatingMarker()),
             ' ',
-            progressbar.ETA(),
+            pb.ETA(),
             ' ',
-            progressbar.FileTransferSpeed()
+            pb.FileTransferSpeed()
         ]
-        return ProgressBar(
+        return pb.ProgressBar(
             max_value=total_bytes,
             widgets=widgets
         )
@@ -214,142 +211,6 @@ def download_experiment_zip(central: pyxnat.Interface,
         zip_ref.extractall(dicom_dir)
     if not keep_zip:
         zip_path.unlink()
-
-
-def download_experiment_dicoms(session_experiment: pyxnat.jsonutil.JsonTable,
-                               central: Interface,
-                               session_dicom_dir: Path,
-                               xml_file_path: Path,
-                               scan_number_start: str = None,
-                               skip_unusable: bool = False):
-    project_id = session_experiment["project"]
-    exp_id = session_experiment['ID']
-
-    # parse the xml file for the scan quality information
-    quality_pairs = get_xml_scans(xml_file=xml_file_path,
-                                  quality_pair=True)
-
-    # retrieve the list of scans for this session
-    scans = central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/*/").get()
-    scans.sort()
-    logger.info(f"Found {len(scans)} scans for this session")
-
-    # truncate the scan list if a starting point was given
-    if scan_number_start:
-        assert scan_number_start in scans, "Specified scan number does not exist for this session/experiment"
-        sdex = scans.index(scan_number_start)
-        scans = scans[sdex:]
-        logger.info(f"Downloading scans for this session starting from series {scan_number_start}")
-
-    # remove the unusable scans from the list if skipping is requested
-    if skip_unusable:
-        scans = [s for s in scans if quality_pairs[s] != "unusable"]
-        logger.info(f"The following scans were marked 'unusable' and will not be downloaded: \n\t {[s for s,q in quality_pairs.items() if q == 'unusable']}")
-
-    # Get total number of files
-    def _get_file_objects_in_scan(scan: str) -> dict:
-        file_objects = central.select(f"/projects/{project_id}/experiments/{exp_id}/scans/{scan}/resources/files").get("")
-        return {file_obj: scan for file_obj in file_objects}
-
-    all_scan_file_objects = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=CONNECTION_POOL_SIZE) as executor:
-        future_dicts = executor.map(_get_file_objects_in_scan, scans)
-        for future_dict in future_dicts:
-            all_scan_file_objects.update(future_dict)
-
-    total_file_count = len(all_scan_file_objects.keys())
-    logger.info(f"Total number of files: {total_file_count}")
-
-    # Make DICOM directories for each series number
-    for scan in scans:
-        series_path = session_dicom_dir / scan / "DICOM"
-        series_path.mkdir(parents=True, exist_ok=True)
-
-    # So log message does not interfere with format of the progress bar
-    logger.removeHandler(sout_handler)
-    zero_size_files = set()
-
-    # Function assigned to threads
-    def _download_session_file(f, scan):
-        file_attrs = {}
-        series_path = session_dicom_dir / scan / "DICOM"
-        assert series_path.is_dir()
-        file_attrs = {
-            "name": series_path / f._uri.split("/")[-1],
-            "size": fmt(int(f.size())) if f.size() else fmt(0),
-            "isempty": True if not f.size() else False,
-            "isdownloaded": False
-        }
-        if file_attrs["isempty"] and file_attrs["name"].exists():
-            return file_attrs
-        f.get(file_attrs["name"])
-        file_attrs["isdownloaded"] = True
-        return file_attrs
-
-    # Download the session files
-    with (
-        ProgressBar(max_value=total_file_count, redirect_stdout=True) as bar,
-        concurrent.futures.ThreadPoolExecutor(max_workers=CONNECTION_POOL_SIZE) as executor
-    ):
-        cur_file_count = 0
-        zero_size_files = []
-        futures = [executor.submit(_download_session_file, f, scan) for (f, scan) in all_scan_file_objects.items()]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                file_attrs = future.result()
-                cur_file_count += 1
-                bar.update(cur_file_count)
-                if file_attrs['isempty']:
-                    zero_size_files.append(file_attrs)
-                if file_attrs['isdownloaded']:
-                    msg = f"Downloaded file {file_attrs['name']}, {file_attrs['size']} ({cur_file_count} out of {total_file_count})"
-                    if len(msg) > (tsize := os.get_terminal_size()[0]) - tsize // 5:
-                        msg = msg[:tsize // 2 - 4] + f"{Colors.DARK_GREY}.......{Colors.RESET}" + msg[tsize // 2 + tsize // 5:]
-                    # if len(msg) > (tsize := os.get_terminal_size()[0]) and tsize % 2 == 1:
-                    #     msg = msg[:tsize // 2 - 4] + f"{Colors.DARK_GREY}.......{Colors.RESET}" + msg[tsize // 2 + tsize // 5:]
-                    logger.info(msg)
-                    # logger.info(f"\tDownloaded file {file_attrs['name']}, {file_attrs['size']} ({cur_file_count} out of {total_file_count})")
-                    print(msg)
-            except Exception as exc:
-                print(f"Task ended with an exception {exc}")
-
-    logger.addHandler(sout_handler)
-    logger.info("DICOM download complete!")
-    if len(zero_size_files) > 0:
-        logger.warning(msg := f"The following downloaded files contained no data:\n{[file_attrs['name'] for file_attrs in zero_size_files]} \nCheck these files for unintended missing data!")
-
-
-def download_nordic_zips(session: str,
-                         central: Interface,
-                         session_experiment: pyxnat.jsonutil.JsonTable,
-                         session_dicom_dir: Path) -> list[Path]:
-    dat_dir_list = []
-    project_id = session_experiment["project"]
-    exp_id = session_experiment['ID']
-
-    def _digests_identical(zip_path: Path,
-                           cnda_file: pyxnat.core.resources.File):
-        if zip_path.is_file():  # Compare digests of zip on CNDA to see if we need to redownload
-            with zip_path.open("rb") as f:
-                if hashlib.md5(f.read()).hexdigest() == cnda_file.attributes()['digest']:  # digests match
-                    return True
-        return False
-
-    # check for zip file from NORDIC sessions
-    nordic_volumes = central.select(f"/projects/{project_id}/experiments/{exp_id}/resources/NORDIC_VOLUMES/files").get("")
-    logger.info(f"Found {len(nordic_volumes)} 'NORDIC_VOLUMES' for this session")
-    for nv in nordic_volumes:
-        zip_path = session_dicom_dir / nv._uri.split("/")[-1]
-        if not _digests_identical(zip_path, nv):
-            logger.info(f"Downloading {zip_path.name}")
-            nv.get(zip_path)
-        unzip_path = zip_path.parent / zip_path.stem
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            logger.info(f"Unzipping to {unzip_path}")
-            zip_ref.extractall(unzip_path)
-        dat_dir_list.append(unzip_path)
-
-    return dat_dir_list
 
 
 def dat_dcm_to_nifti(session: str,
@@ -533,7 +394,7 @@ def main():
     # set up CNDA connection
     central = None
     if not args.map_dats:
-        central = Interface(server="https://cnda.wustl.edu/")
+        central = px.Interface(server="https://cnda.wustl.edu/")
         atexit.register(central.disconnect)
 
     # main loop
