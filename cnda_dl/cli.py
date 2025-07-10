@@ -216,7 +216,7 @@ def dat_dcm_to_nifti(session: str,
                      dat_directory: Path,
                      xml_file_path: Path,
                      session_dicom_dir: Path,
-                     nifti_path: Path,
+                     session_nifti_dir: Path,
                      skip_short_runs: bool = False):
     # check if the required program is on the current PATH
     can_convert = False
@@ -224,8 +224,8 @@ def dat_dcm_to_nifti(session: str,
     error_series = set()
     if shutil.which('dcmdat2niix') is not None:
         can_convert = True
-        nifti_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {nifti_path}")
+        session_nifti_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {session_nifti_dir}")
     else:
         logger.warning("dcmdat2niix not installed or has not been added to the PATH. Cannot convert data files into NIFTI")
 
@@ -281,7 +281,7 @@ def dat_dcm_to_nifti(session: str,
 
         # run the dcmdat2niix subprocess
         logger.info(f"Running dcmdat2niix on series {series_id}")
-        dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba y -z o -w 1 -o {nifti_path} {series_path}")
+        dcmdat2niix_cmd = shlex.split(f"dcmdat2niix -ba y -z o -w 1 -o {session_nifti_dir} {series_path}")
         with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
             while p.poll() is None:
                 for line in p.stdout:
@@ -400,17 +400,16 @@ def main():
         download_success = False
         xml_file_path = xml_path / f"{session}.xml"
         session_dicom_dir = dicom_dir / session
-
+        session_nifti_dir = dicom_dir / f"{session}_nii"
         # if only mapping is needed
         if args.map_dats:
             # map the .dat files to the correct scans and convert the files to NIFTI
-            nifti_path = dicom_dir / f"{session}_nii"
             try:
                 dat_dcm_to_nifti(session=session,
                                  dat_directory=args.map_dats,
                                  xml_file_path=xml_file_path,
                                  session_dicom_dir=session_dicom_dir,
-                                 nifti_path=nifti_path,
+                                 session_nifti_dir=session_nifti_dir,
                                  skip_short_runs=args.skip_short_runs)
             except Exception:
                 logger.exception(f"Error moving the .dat files to the appropriate scan directories and converting to NIFTI for session: {session}")
@@ -437,30 +436,10 @@ def main():
             download_success = False
             continue
 
-        # download the experiment data
-        logger.info(f"Starting download of session {session}")
-
-        # try to retrieve the experiment corresponding to this session
-        exp = None
-        try:
-            exp = retrieve_experiment(central=central,
-                                      session=session,
-                                      experiment_id=args.experiment_id,
-                                      project_id=args.project_id)
-            if len(exp) == 0:
-                raise RuntimeError("ERROR: CNDA query returned JsonTable object of length 0, meaning there were no results found with the given search parameters.")
-            elif len(exp) > 1:
-                raise RuntimeError("ERROR: CNDA query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
-
-        except Exception:
-            continue
-
-        # download the xml for this session
         download_xml(central=central,
                      subject_id=exp["xnat:mrsessiondata/subject_id"],
                      project_id=exp["project"],
                      file_path=xml_file_path)
-        # try to download the files for this experiment
         if not args.dats_only:
             try:
                 download_experiment_zip(central=central,
@@ -473,29 +452,15 @@ def main():
                 download_success = False
                 continue
 
-        # exit if skipping the NORDIC files
         nordic_dat_dir = session_dicom_dir / "NORDIC_VOLUMES"
         if args.ignore_nordic_volumes or not nordic_dat_dir.is_dir():
             continue
-        # try to download NORDIC related files and convert raw data to NIFTI
-        try:
-            # nordic_dat_dirs = download_nordic_zips(session=session,
-            #                                        central=central,
-            #                                        session_experiment=exp,
-            #                                        session_dicom_dir=session_dicom_dir)
-            nifti_path = dicom_dir / f"{session}_nii"
-            # for nordic_dat_path in nordic_dat_dirs:
-            dat_dcm_to_nifti(session=session,
-                             dat_directory=nordic_dat_dir,
-                             xml_file_path=xml_file_path,
-                             session_dicom_dir=session_dicom_dir,
-                             nifti_path=nifti_path,
-                             skip_short_runs=args.skip_short_runs)
-        except Exception:
-            logger.exception(f"Error downloading 'NORDIC_VOLUMES' and converting to NIFTI for session: {session}")
-            download_success = False
-            continue
-
+        dat_dcm_to_nifti(session=session,
+                         dat_directory=nordic_dat_dir,
+                         xml_file_path=xml_file_path,
+                         session_dicom_dir=session_dicom_dir,
+                         session_nifti_dir=session_nifti_dir,
+                         skip_short_runs=args.skip_short_runs)
     if download_success:
         logger.info("\nDownloads Complete")
 
