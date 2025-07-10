@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 '''
 Script to download MRI sessions from the CNDA
 Authors:
