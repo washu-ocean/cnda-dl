@@ -174,7 +174,7 @@ def download_experiment_zip(central: px.Interface,
             pb.DataSize(), '/', pb.DataSize(variable='max_value'),
             pb.Percentage(),
             ' ',
-            pb.Bar(marker=pb.RotatingMarker()),
+            pb.RotatingMarker(),
             ' ',
             pb.ETA(),
             ' ',
@@ -184,6 +184,8 @@ def download_experiment_zip(central: px.Interface,
             max_value=total_bytes,
             widgets=widgets
         )
+    logger.info("Downloading session .zip")
+    logger.removeHandler(sout_handler)
     with (
         central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", stream=True) as res2,
         open(zip_path := (dicom_dir / f"{res1.json()['id']}.zip"), "w+b") as f,
@@ -200,10 +202,13 @@ def download_experiment_zip(central: px.Interface,
                     start, end = time.time(), time.time()
                     # print(f"downloaded {fmt(cur_bytes)} out of {fmt_total_bytes}")
                     bar.update(cur_bytes)
+    logger.addHandler(sout_handler)
+    logger.info("Download complete!")
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         logger.info(f"Unzipping {zip_path}...")
         zip_ref.extractall(dicom_dir)
     if not keep_zip:
+        logger.info(f"Removing {zip_path}...")
         zip_path.unlink()
 
 
