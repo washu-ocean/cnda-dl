@@ -164,9 +164,6 @@ def download_experiment_zip(central: px.Interface,
         }
     )
     # Step 2: make GET request with created ID from POST
-    if dicom_dir.is_dir():
-        shutil.rmtree(dicom_dir)
-    dicom_dir.mkdir()
     cur_bytes, total_bytes = 0, int(res1.json()["size"])
 
     def _build_progress_bar():
