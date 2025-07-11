@@ -265,9 +265,6 @@ def dat_dcm_to_nifti(session: str,
 
         if len(dats) == 0:
             dats = list(series_path.glob("*.dat"))  # see if dats already in series dir
-        if len(dats) == 0:
-            logger.info(f"No .dats found for series {series_id}, skipping...")
-            continue
 
         dcms = list(series_path.glob("*.dcm"))
         logger.info(f"length of dats: {len(dats)}")

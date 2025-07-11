@@ -32,7 +32,6 @@ cnda-dl = "cnda_dl.cli:main"
 
 [dependency-groups]
 dev = [
-    "ipython>=8.18.1",
     "pudb>=2025.1",
     "pytest<9.0.0,>=8.2.2",
 ]
