@@ -188,17 +188,12 @@ def download_experiment_zip(central: px.Interface,
         open(zip_path := (dicom_dir / f"{res1.json()['id']}.zip"), "w+b") as f,
         _build_progress_bar() as bar
     ):
-        start, end = time.time(), time.time()
         res2.raise_for_status()
         for chunk in res2.iter_content(chunk_size=(chunk_size := 8192)):
             if chunk:
                 f.write(chunk)
                 cur_bytes += chunk_size
-                end = time.time()
-                if end - start > 1:
-                    start, end = time.time(), time.time()
-                    # print(f"downloaded {fmt(cur_bytes)} out of {fmt_total_bytes}")
-                    bar.update(cur_bytes)
+                bar.update(cur_bytes)
     logger.addHandler(sout_handler)
     logger.info("Download complete!")
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
