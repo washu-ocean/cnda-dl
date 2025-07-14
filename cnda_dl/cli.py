@@ -111,7 +111,7 @@ def get_scan_types(xml_path):
         xml_text = f.read()
     return list(set(
         re.findall(
-            r'ID="[\d\w_\-]+"\s+type="([a-zA-Z0-9\-_]+)"',
+            r'ID="[\d\w_\-]+"\s+type="([a-zA-Z0-9\-_\.]+)"',
             xml_text
         )
     ))
