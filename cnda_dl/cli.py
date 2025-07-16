@@ -183,9 +183,8 @@ def download_experiment_zip(central: px.Interface,
         )
     logger.info("Downloading session .zip")
     logger.removeHandler(sout_handler)
-    time.sleep(5)
     with (
-        central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", stream=True) as res2,
+        central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", stream=True, timeout=(5, 30)) as res2,
         open(zip_path := (dicom_dir / f"{res1.json()['id']}.zip"), "wb") as f,
         _build_progress_bar() as bar
     ):
