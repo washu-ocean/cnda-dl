@@ -183,16 +183,16 @@ def download_experiment_zip(central: px.Interface,
             widgets=widgets
         )
     logger.info("Downloading session .zip")
+    res2 = central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", timeout=(60, 300))
+    res2.raise_for_status()
     with (
-        central.get(f"/xapi/archive/download/{res1.json()['id']}/zip", stream=True, timeout=(60, 300)) as res2,
         open(zip_path := (dicom_dir / f"{res1.json()['id']}.zip"), "wb") as f,
         _build_progress_bar() as bar
     ):
         logger.info(f"Request headers: {res2.request.headers}")
         logger.info(f"Response headers: {res2.headers}")
         logger.removeHandler(sout_handler)
-        res2.raise_for_status()
-        for chunk in res2.iter_content(chunk_size=(chunk_size := 8192)):
+        for chunk in res2.iter_content(chunk_size=(chunk_size := 1024)):
             if chunk:
                 f.write(chunk)
                 cur_bytes += chunk_size
