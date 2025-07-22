@@ -243,7 +243,7 @@ def dat_dcm_to_nifti(session: str,
     uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans if s.get("ID") in downloaded_scans}
 
     # collect all of the .dat files and map them to their UIDs
-    dat_files = dat_directory.rglob("*.dat")
+    dat_files = list(dat_directory.rglob("*.dat"))
     uid_to_dats = {uid: [d for d in dat_files if uid in d.name] for uid in uid_to_id.keys()}
 
     for uid, dats in uid_to_dats.items():
