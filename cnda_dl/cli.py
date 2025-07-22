@@ -8,7 +8,6 @@ from glob import glob
 from pathlib import Path
 import atexit
 import re
-import time
 import argparse
 import logging
 import os
@@ -17,14 +16,13 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as et
-import zipfile
 import datetime
-from pprint import pformat
 
 import pyxnat as px
 import progressbar as pb
 
 from .formatters import ParensOnRightFormatter1
+from .zip_utils import recursive_unzip, unzipped
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -199,12 +197,8 @@ def download_experiment_zip(central: px.Interface,
                 bar.update(cur_bytes)
     logger.addHandler(sout_handler)
     logger.info("Download complete!")
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        logger.info(f"Unzipping {zip_path}...")
-        zip_ref.extractall(dicom_dir)
-    if not keep_zip:
-        logger.info(f"Removing {zip_path}...")
-        zip_path.unlink()
+    unzipped_dir = unzipped(zip_path, keep_zip=False)
+    recursive_unzip(unzipped_dir, keep_zip=False)  # for NORDIC_VOLUMES already zipped up
 
 
 def dat_dcm_to_nifti(session: str,
@@ -249,7 +243,7 @@ def dat_dcm_to_nifti(session: str,
     uid_to_id = {s.get("UID")[:-6]:s.get("ID") for s in xml_scans if s.get("ID") in downloaded_scans}
 
     # collect all of the .dat files and map them to their UIDs
-    dat_files = list(dat_directory.glob("*.dat"))
+    dat_files = dat_directory.rglob("*.dat")
     uid_to_dats = {uid: [d for d in dat_files if uid in d.name] for uid in uid_to_id.keys()}
 
     for uid, dats in uid_to_dats.items():
@@ -453,6 +447,7 @@ def main():
                 continue
 
         nordic_dat_dir = session_dicom_dir / "NORDIC_VOLUMES"
+        recursive_unzip(nordic_dat_dir)
         if args.skip_dcmdat2niix or not nordic_dat_dir.is_dir():
             continue
         dat_dcm_to_nifti(session=session,
