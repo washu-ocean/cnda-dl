@@ -346,6 +346,9 @@ def main():
     parser.add_argument("--keep_zip",
                         help="Option to keep downloaded .zip file after unzipping",
                         action='store_true')
+    parser.add_argument("--xml_only", "-xo",
+                        action="store_true",
+                        help="Flag to indicate that only the xml file should be downloaded.")
     args = parser.parse_args()
 
     # validate argument inputs
@@ -433,6 +436,8 @@ def main():
                      subject_id=exp["xnat:mrsessiondata/subject_id"],
                      project_id=exp["project"],
                      file_path=xml_file_path)
+        if args.xml_only:
+            continue
         if not args.dats_only:
             try:
                 download_experiment_zip(central=central,
