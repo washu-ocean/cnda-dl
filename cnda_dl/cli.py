@@ -298,7 +298,7 @@ def dat_dcm_to_nifti(session: str,
         The following series for session:{session} were
         not converted to NIFTI beause the '--skip_short_runs'
         option was selected
-        {unconverted_series}\n""")
+        {sorted(unconverted_series)}\n""")
 
     if len(error_series) > 0:
         logger.warning(f"""
@@ -307,7 +307,7 @@ def dat_dcm_to_nifti(session: str,
         to corrupted dat files (.dat files with zero or very little
         data) or if they are Physiolog acquisitions. Check these
         series for possible causes.
-        {error_series}\n""")
+        {sorted(error_series)}\n""")
 
 
 def main():
