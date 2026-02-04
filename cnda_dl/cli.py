@@ -22,7 +22,7 @@ import pyxnat as px
 import progressbar as pb
 
 from .formatters import ParensOnRightFormatter1
-from .zip_utils import recursive_unzip, unzipped
+from .zip_utils import unzipped
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -197,8 +197,12 @@ def download_experiment_zip(central: px.Interface,
                 bar.update(cur_bytes)
     logger.addHandler(sout_handler)
     logger.info("Download complete!")
-    unzipped_dir = unzipped(zip_path, keep_zip=False)
-    recursive_unzip(unzipped_dir, keep_zip=False)  # for NORDIC_VOLUMES already zipped up
+    top_zip_members = unzipped(zip_path, keep_zip=keep_zip)
+    unzipped_dirs = [d for d in top_zip_members if d.is_dir()]
+    if len(unzipped_dirs) > 1:
+        logger.warning(f"The zip file contained more than one top-level file/folder. Using the first directory member found: {unzipped_dirs[0]}")
+    return unzipped_dirs[0]
+    # recursive_unzip(unzipped_dir, keep_zip=False)  # for NORDIC_VOLUMES already zipped up
 
 
 def dat_dcm_to_nifti(session: str,
@@ -440,11 +444,16 @@ def main():
             continue
         if not args.dats_only:
             try:
-                download_experiment_zip(central=central,
+                unzip_session_dicom_dir = download_experiment_zip(central=central,
                                         exp=exp,
                                         dicom_dir=dicom_dir,
                                         xml_file_path=xml_file_path,
                                         keep_zip=args.keep_zip)
+                if unzip_session_dicom_dir.name != session_dicom_dir.name:
+                    os.rename(unzip_session_dicom_dir.resolve(), session_dicom_dir.resolve())
+            except FileExistsError:
+                logger.warning(f"could not rename {unzip_session_dicom_dir} to {session_dicom_dir} because the directory already exists")
+                session_dicom_dir = unzip_session_dicom_dir
             except Exception as e:
                 logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
                 logger.exception(f"{e=}")
@@ -452,7 +461,6 @@ def main():
                 continue
 
         nordic_dat_dir = session_dicom_dir / "NORDIC_VOLUMES"
-        recursive_unzip(nordic_dat_dir)
         if args.skip_dcmdat2niix or not nordic_dat_dir.is_dir():
             continue
         dat_dcm_to_nifti(session=session,
