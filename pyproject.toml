@@ -15,7 +15,7 @@ authors = [
     {name = "Ramone Agard", email = "agardr@wustl.edu"},
     {name = "Joey Scanga", email = "joeyscanga92@gmail.com"},
 ]
-requires-python = "<4.0,>=3.9"
+requires-python = "<3.13,>=3.10"
 dependencies = [
     "progressbar2>=4.4.2",
     "pyxnat>=1.6.2",
