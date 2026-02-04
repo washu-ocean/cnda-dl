@@ -4,7 +4,6 @@ Authors:
     Joey Scanga (scanga@wustl.edu)
     Ramone Agard (rhagard@wustl.edu)
 '''
-from glob import glob
 from pathlib import Path
 import atexit
 import re
@@ -276,8 +275,8 @@ def dat_dcm_to_nifti(session: str,
                 unconverted_series.add(series_id)
                 continue
             elif (len(dcms) == len(dats) + 1) and len(dcms) > 1:
-                logger.info("Attempting to remove the extra dcm file, and convert the remaing data")
-                last_dcm = glob(f"{series_path}/*-{len(dcms)}-*.dcm")
+                logger.info("Attempting to remove the extra dcm file, and convert the remaining data")
+                last_dcm = list(series_path.glob(f"*-{len(dcms)}-*.dcm"))
                 if len(last_dcm) == 1:
                     logger.info(f"Removing the mismatched dicom: {last_dcm[0]}")
                     os.remove(last_dcm[0])
