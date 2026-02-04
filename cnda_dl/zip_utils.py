@@ -28,14 +28,3 @@ def unzipped(zip_path: str | Path, keep_zip: bool = False, recursive: bool = Tru
                 for sub_zip in full_zm.rglob("*.zip"):
                     unzipped(sub_zip)
     return [zip_path.parent / tm for tm in top_members]
-
-
-def recursive_unzip(top_dir: str | Path, keep_zip: bool = False):
-    if isinstance(top_dir, str):
-        top_dir = Path(top_dir)
-    zips_exist = True
-    while zips_exist:
-        zips_exist = False
-        for zip_path in top_dir.rglob("*.zip"):
-            zips_exist = True
-            unzipped(zip_path)

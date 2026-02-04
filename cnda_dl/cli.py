@@ -22,7 +22,7 @@ import pyxnat as px
 import progressbar as pb
 
 from .formatters import ParensOnRightFormatter1
-from .zip_utils import recursive_unzip, unzipped
+from .zip_utils import unzipped
 
 default_log_format = "%(levelname)s:%(funcName)s: %(message)s"
 sout_handler = logging.StreamHandler(stream=sys.stdout)
