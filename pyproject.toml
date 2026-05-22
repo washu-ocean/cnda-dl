@@ -19,10 +19,11 @@ requires-python = "<3.13,>=3.10"
 dependencies = [
     "progressbar2>=4.4.2",
     "pyxnat>=1.6.2",
-    "nibabel"
+    "nibabel",
+    "pandas>=2.3.3",
 ]
 name = "cnda_dl"
-version = "1.2.2"
+version = "1.2.3"
 description = "A command line utility for downloading fMRI data from CNDA"
 readme = "README.md"
 
