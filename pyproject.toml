@@ -23,7 +23,7 @@ dependencies = [
     "pandas>=2.3.3",
 ]
 name = "cnda_dl"
-version = "1.2.3"
+version = "1.2.4"
 description = "A command line utility for downloading fMRI data from CNDA"
 readme = "README.md"
 
