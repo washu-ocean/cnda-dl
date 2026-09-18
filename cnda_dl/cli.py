@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.INFO,
 
 logger = logging.getLogger()
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 class FileTypes(str, Enum):
     ALL = "all"
@@ -185,14 +185,12 @@ def download_experiment_zip(central: px.Interface,
 
     def log_and_cleanup(msg:str, 
                         path:Path, 
-                        log_level=logging.ERROR, 
-                        exit_code:int=1):
+                        log_level=logging.ERROR):
         if sout_handler not in logger.handlers:
             logger.addHandler(sout_handler)
-        logger.log(log_level, msg, exc_info=(log_level == logging.ERROR))
+        logger.log(log_level, msg)
         if path is not None:
             path.unlink(missing_ok=True)
-        sys.exit(exit_code)
 
     try:
         # Step 2: send the POST request
@@ -230,13 +228,17 @@ def download_experiment_zip(central: px.Interface,
                 f.write(res2.content)
 
     except requests.exceptions.HTTPError as err:
-        log_and_cleanup(f"CNDA server returned an HTTP error code during download.", zip_path, exit_code=1)
+        log_and_cleanup(f"CNDA server returned an HTTP error code during download.", zip_path)
+        raise
     except requests.exceptions.ConnectionError as err:
-        log_and_cleanup("Failed to connect to the CNDA server. Check your network or server URL.", zip_path, exit_code=1)
+        log_and_cleanup("Failed to connect to the CNDA server. Check your network or server URL.", zip_path)
+        raise
     except KeyboardInterrupt:
-        log_and_cleanup("[Cancelled] Download interrupted manually by the user (Ctrl+C).", zip_path, log_level=logging.WARN, exit_code=130)
+        log_and_cleanup("[Cancelled] Download interrupted manually by the user (Ctrl+C).", zip_path, log_level=logging.WARN)
+        raise
     except Exception as err:
-        log_and_cleanup("An unexpected error occurred during download.", zip_path, exit_code=1)
+        log_and_cleanup("An unexpected error occurred during download.", zip_path)
+        raise
 
     logger.info("Download complete!")
     top_zip_members = unzipped(zip_path, keep_zip=keep_zip)
