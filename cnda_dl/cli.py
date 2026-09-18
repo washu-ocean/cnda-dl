@@ -14,11 +14,9 @@ import shlex
 import shutil
 import subprocess
 import sys
-import xml.etree.ElementTree as et
 import datetime
 from enum import Enum
 import requests
-
 
 import pyxnat as px
 import progressbar as pb
