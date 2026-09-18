@@ -5,10 +5,8 @@ Authors:
     Ramone Agard (rhagard@wustl.edu)
 '''
 from __future__ import annotations
-from logging import handlers
 from pathlib import Path
 import atexit
-# import re
 import argparse
 import logging
 import os
