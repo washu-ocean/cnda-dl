@@ -523,9 +523,6 @@ def main():
             xml_file_path = xml_path / f"{session_name}.xml"
             session_dicom_dir = dicom_dir / session_name
             session_nifti_dir = dicom_dir / f"{session_name}_nii"
-            
-            if (not xml_file_path.exists()) and (not FileTypes.includes(args.get_files, FileTypes.XML)):
-                args.get_files.append(FileTypes.XML)
 
             # If the XML file is requested
             if FileTypes.includes(args.get_files, FileTypes.XML):
