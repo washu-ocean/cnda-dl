@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.INFO,
 
 logger = logging.getLogger()
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 class FileTypes(str, Enum):
     ALL = "all"
@@ -165,7 +165,7 @@ def download_experiment_zip(central: px.Interface,
         widgets = [
             pb.DataSize(), 
             ' of', 
-            pb.DataSize(variable='max_value', format='%(scaled)4.1f %(prefix)s%(unit)s'),
+            pb.DataSize(variable='max_value'),
             '  ',
             pb.AnimatedMarker(),
             ' ',
@@ -185,14 +185,12 @@ def download_experiment_zip(central: px.Interface,
 
     def log_and_cleanup(msg:str, 
                         path:Path, 
-                        log_level=logging.ERROR, 
-                        exit_code:int=1):
+                        log_level=logging.ERROR):
         if sout_handler not in logger.handlers:
             logger.addHandler(sout_handler)
-        logger.log(log_level, msg, exc_info=(log_level == logging.ERROR))
+        logger.log(log_level, msg)
         if path is not None:
             path.unlink(missing_ok=True)
-        sys.exit(exit_code)
 
     try:
         # Step 2: send the POST request
@@ -205,22 +203,28 @@ def download_experiment_zip(central: px.Interface,
         zip_path = (dicom_dir/f"{res1.json()['id']}.zip")
         zip_url = f"/xapi/archive/download/{res1.json()['id']}/zip"
         timeout_params = (60, 300)
+        est_ratio = 0.7
 
         # Step 3: make GET request with created ID from POST
         if chunk_download:
-            with central.get(zip_url, timeout=timeout_params, stream=True) as response:
+            with central.get(zip_url, stream=True) as response:
                 response.raise_for_status()
                 
                 with (
                     open(zip_path, "wb") as f,
-                    _build_progress_bar(total_bytes*0.7) as pbar
+                    _build_progress_bar(total_bytes*est_ratio) as pbar
                 ):
                     logger.removeHandler(sout_handler)
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
                             cur_bytes += len(chunk)
+                            if cur_bytes > pbar.max_value:
+                                est_ratio += 0.05
+                                pbar.max_value = total_bytes * est_ratio
                             pbar.update(cur_bytes)
+                    pbar.max_value = cur_bytes
+                    pbar.update(cur_bytes)
                 logger.addHandler(sout_handler)
         else:
             res2 = central.get(zip_url, timeout=timeout_params)
@@ -230,13 +234,17 @@ def download_experiment_zip(central: px.Interface,
                 f.write(res2.content)
 
     except requests.exceptions.HTTPError as err:
-        log_and_cleanup(f"CNDA server returned an HTTP error code during download.", zip_path, exit_code=1)
+        log_and_cleanup(f"CNDA server returned an HTTP error code during download.", zip_path)
+        raise
     except requests.exceptions.ConnectionError as err:
-        log_and_cleanup("Failed to connect to the CNDA server. Check your network or server URL.", zip_path, exit_code=1)
+        log_and_cleanup("Failed to connect to the CNDA server. Check your network or server URL.", zip_path)
+        raise
     except KeyboardInterrupt:
-        log_and_cleanup("[Cancelled] Download interrupted manually by the user (Ctrl+C).", zip_path, log_level=logging.WARN, exit_code=130)
+        log_and_cleanup("[Cancelled] Download interrupted manually by the user (Ctrl+C).", zip_path, log_level=logging.WARN)
+        raise
     except Exception as err:
-        log_and_cleanup("An unexpected error occurred during download.", zip_path, exit_code=1)
+        log_and_cleanup("An unexpected error occurred during download.", zip_path)
+        raise
 
     logger.info("Download complete!")
     top_zip_members = unzipped(zip_path, keep_zip=keep_zip)
@@ -292,16 +300,17 @@ def dat_dcm_to_nifti(central: px.Interface,
     downloaded_scans = {s for s in scans if (session_dicom_dir/str(s.id())/"DICOM").exists()}
 
     if len(downloaded_scans) > 0:
-            session_nifti_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {session_nifti_dir}")
+        session_nifti_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {session_nifti_dir}")
 
     # collect all of the .dat files and map them to their UIDs
     dat_files = list(dat_directory.rglob("*.dat")) if dat_directory else []
 
     # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
     scan_to_dats = {s: [d for d in dat_files if s.attrs.get("UID")[:-6] in d.name] for s in downloaded_scans}
+    scan_and_dats = sorted(scan_to_dats.items(), key=lambda x: int(x[0].id()))
 
-    for scan, dats in scan_to_dats.items():
+    for scan, dats in scan_and_dats:
         uid = scan.attrs.get("UID")[:-6]
         series_path = session_dicom_dir / scan.id() / "DICOM"
         for dat in dats:
@@ -514,9 +523,6 @@ def main():
             xml_file_path = xml_path / f"{session_name}.xml"
             session_dicom_dir = dicom_dir / session_name
             session_nifti_dir = dicom_dir / f"{session_name}_nii"
-            
-            if (not xml_file_path.exists()) and (not FileTypes.includes(args.get_files, FileTypes.XML)):
-                args.get_files.append(FileTypes.XML)
 
             # If the XML file is requested
             if FileTypes.includes(args.get_files, FileTypes.XML):
@@ -544,7 +550,6 @@ def main():
                     session_dicom_dir = Path(unzip_session_dicom_dir)
                 except Exception as e:
                     logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
-                    logger.exception(f"{e=}")
                     download_success = False
                     continue
 
@@ -570,7 +575,7 @@ def main():
                 download_success = False
             
         if download_success:
-            logger.info(f"\n\tDownloads Complete for {session}\n")
+            logger.info(f"Downloads Complete for {session}\n")
 
 
 if __name__ == "__main__":
