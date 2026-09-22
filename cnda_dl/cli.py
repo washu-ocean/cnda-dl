@@ -165,7 +165,7 @@ def download_experiment_zip(central: px.Interface,
         widgets = [
             pb.DataSize(), 
             ' of', 
-            pb.DataSize(variable='max_value', format='%(scaled)4.1f %(prefix)s%(unit)s'),
+            pb.DataSize(variable='max_value'),
             '  ',
             pb.AnimatedMarker(),
             ' ',
@@ -203,22 +203,28 @@ def download_experiment_zip(central: px.Interface,
         zip_path = (dicom_dir/f"{res1.json()['id']}.zip")
         zip_url = f"/xapi/archive/download/{res1.json()['id']}/zip"
         timeout_params = (60, 300)
+        est_ratio = 0.7
 
         # Step 3: make GET request with created ID from POST
         if chunk_download:
-            with central.get(zip_url, timeout=timeout_params, stream=True) as response:
+            with central.get(zip_url, stream=True) as response:
                 response.raise_for_status()
                 
                 with (
                     open(zip_path, "wb") as f,
-                    _build_progress_bar(total_bytes*0.7) as pbar
+                    _build_progress_bar(total_bytes*est_ratio) as pbar
                 ):
                     logger.removeHandler(sout_handler)
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
                             cur_bytes += len(chunk)
+                            if cur_bytes > pbar.max_value:
+                                est_ratio += 0.05
+                                pbar.max_value = total_bytes * est_ratio
                             pbar.update(cur_bytes)
+                    pbar.max_value = cur_bytes
+                    pbar.update(cur_bytes)
                 logger.addHandler(sout_handler)
         else:
             res2 = central.get(zip_url, timeout=timeout_params)
@@ -294,16 +300,17 @@ def dat_dcm_to_nifti(central: px.Interface,
     downloaded_scans = {s for s in scans if (session_dicom_dir/str(s.id())/"DICOM").exists()}
 
     if len(downloaded_scans) > 0:
-            session_nifti_dir.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {session_nifti_dir}")
+        session_nifti_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Combined .dcm & .dat files (.nii.gz format) will be stored at: {session_nifti_dir}")
 
     # collect all of the .dat files and map them to their UIDs
     dat_files = list(dat_directory.rglob("*.dat")) if dat_directory else []
 
     # [:-6] is to ignore the trailing '.0.0.0' at the end of the UID string
     scan_to_dats = {s: [d for d in dat_files if s.attrs.get("UID")[:-6] in d.name] for s in downloaded_scans}
+    scan_and_dats = sorted(scan_to_dats.items(), key=lambda x: int(x[0].id()))
 
-    for scan, dats in scan_to_dats.items():
+    for scan, dats in scan_and_dats:
         uid = scan.attrs.get("UID")[:-6]
         series_path = session_dicom_dir / scan.id() / "DICOM"
         for dat in dats:
@@ -546,7 +553,6 @@ def main():
                     session_dicom_dir = Path(unzip_session_dicom_dir)
                 except Exception as e:
                     logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
-                    logger.exception(f"{e=}")
                     download_success = False
                     continue
 
@@ -572,7 +578,7 @@ def main():
                 download_success = False
             
         if download_success:
-            logger.info(f"\n\tDownloads Complete for {session}\n")
+            logger.info(f"Downloads Complete for {session}\n")
 
 
 if __name__ == "__main__":
