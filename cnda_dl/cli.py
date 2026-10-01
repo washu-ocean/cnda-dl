@@ -146,6 +146,7 @@ def download_experiment_zip(central: px.Interface,
     '''
     sub_obj = central.select.project(exp['project']).subject(exp['xnat:mrsessiondata/subject_id'])
     exp_obj = sub_obj.experiment(exp['ID'])
+    downloaded_resources = []
 
     # Step 1: make POST json body to prepare .zip download
     post_json = {
@@ -158,6 +159,7 @@ def download_experiment_zip(central: px.Interface,
         post_json["scan_types"] = list({s.attrs.get("type") for s in exp_obj.scans()})
     if FileTypes.includes(get_types, FileTypes.DATS):
         post_json["resources"] = [r.label() for r in exp_obj.resources()]
+        downloaded_resources = post_json["resources"]
 
     zip_path = None
 
@@ -251,7 +253,7 @@ def download_experiment_zip(central: px.Interface,
     unzipped_dirs = [d for d in top_zip_members if d.is_dir()]
     if len(unzipped_dirs) > 1:
         logger.warning(f"The zip file contained more than one top-level file/folder. Using the first directory member found: {unzipped_dirs[0]}")
-    return unzipped_dirs[0]
+    return unzipped_dirs[0], downloaded_resources
 
 
 def dat_dcm_to_nifti(central: px.Interface,
@@ -490,10 +492,11 @@ def main():
 
     # main loop
     for session in session_list:
-        download_success = True
         xml_file_path = xml_path / f"{session}.xml"
         session_dicom_dir = dicom_dir / session
         session_nifti_dir = dicom_dir / f"{session}_nii"
+        session_dat_dir = args.map_dats if args.map_dats else None
+        downloaded_resources = []
 
         if FileTypes.NONE not in args.get_files:
             # download the experiment data
@@ -514,8 +517,7 @@ def main():
                     raise RuntimeError("ERROR: CNDA query returned JsonTable object of length >1, meaning there were multiple results returned with the given search parameters.")
 
             except Exception:
-                logger.exception("Error retrieving the experiment from the given parameters. Double check your inputs or enter more specific parameters.")
-                download_success = False
+                logger.exception(f"Error retrieving the experiment for session: {session}. Double check your inputs or enter more specific parameters.")
                 continue
 
             # update the directory names with session label
@@ -535,7 +537,7 @@ def main():
             # If dicoms or dats are requested
             if any([FileTypes.includes(args.get_files, ft) for ft in [FileTypes.DICOMS, FileTypes.DATS]]):
                 try:
-                    unzip_session_dicom_dir = download_experiment_zip(
+                    unzip_session_dicom_dir, downloaded_resources = download_experiment_zip(
                         central=central,
                         exp=exp,
                         dicom_dir=dicom_dir,
@@ -550,32 +552,37 @@ def main():
                     session_dicom_dir = Path(unzip_session_dicom_dir)
                 except Exception as e:
                     logger.exception(f"Error downloading the experiment data from CNDA for session: {session}")
-                    download_success = False
                     continue
 
-        # If dicoms are present
-        if session_dicom_dir.is_dir():
-            nordic_dat_dir = args.map_dats if args.map_dats else session_dicom_dir / "NORDIC_VOLUMES"
-            if not args.map_dats:
-                if args.skip_dcmdat2niix or (not nordic_dat_dir.is_dir() and not args.nifti):
-                    continue
-            # map the .dat files to the correct scans and convert the files to NIFTI
-            try:
-                dat_dcm_to_nifti(
-                    central=central,
-                    exp=exp,
-                    dat_directory=nordic_dat_dir,
-                    session_dicom_dir=session_dicom_dir,
-                    session_nifti_dir=session_nifti_dir,
-                    force_nifti=args.nifti,
-                    skip_short_runs=args.skip_short_runs
-                )
-            except Exception:
-                logger.exception(f"Error moving the .dat files to the appropriate scan directories and converting to NIFTI for session: {session}")
-                download_success = False
+            # If other resources were downloaded, find which one contains .dat files
+            if (session_dat_dir is None) and (len(downloaded_resources) > 0):
+                for resource_name in downloaded_resources:
+                    resource_dir = session_dicom_dir / resource_name
+                    if not resource_dir.is_dir():
+                        continue
+                    elif next(resource_dir.rglob("*.dat"), None) is not None:
+                        session_dat_dir = resource_dir
+                        break
             
-        if download_success:
-            logger.info(f"Downloads Complete for {session}\n")
+        # If dicoms are present and conversion is requested
+        if session_dicom_dir.is_dir():
+            if (not args.skip_dcmdat2niix) and ((session_dat_dir is not None) or args.nifti):
+                # map the .dat files to the correct scans and convert the files to NIFTI
+                try:
+                    dat_dcm_to_nifti(
+                        central=central,
+                        exp=exp,
+                        dat_directory=session_dat_dir,
+                        session_dicom_dir=session_dicom_dir,
+                        session_nifti_dir=session_nifti_dir,
+                        force_nifti=args.nifti,
+                        skip_short_runs=args.skip_short_runs
+                    )
+                except Exception:
+                    logger.exception(f"Error moving the .dat files to the appropriate scan directories and converting to NIFTI for session: {session}")
+                    continue
+            
+        logger.info(f"Downloads Complete for {session}\n")
 
 
 if __name__ == "__main__":
