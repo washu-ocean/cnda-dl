@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.INFO,
 
 logger = logging.getLogger()
 
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 class FileTypes(str, Enum):
     ALL = "all"
