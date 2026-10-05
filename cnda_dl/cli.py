@@ -351,7 +351,7 @@ def dat_dcm_to_nifti(central: px.Interface,
         with subprocess.Popen(dcmdat2niix_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
             while p.poll() is None:
                 for line in p.stdout:
-                    logger.info(line.decode("utf-8", "ignore"), end="")
+                    logger.info(line.decode("utf-8", "ignore"))
             if p.poll() == 0:
                 logger.info(f"{conversion_program} complete for series {scan.id()} \n")
             else:
